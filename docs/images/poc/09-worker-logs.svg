@@ -1,0 +1,104 @@
+<svg class="rich-terminal" viewBox="0 0 2458 342.79999999999995" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-466492634-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-466492634-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-466492634-r1 { fill: #98e024;font-weight: bold }
+.terminal-466492634-r2 { fill: #d9d9d9 }
+.terminal-466492634-r3 { fill: #58d1eb;font-weight: bold }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-466492634-clip-terminal">
+      <rect x="0" y="0" width="2439.0" height="291.79999999999995" />
+    </clipPath>
+    <clipPath id="terminal-466492634-line-0">
+    <rect x="0" y="1.5" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-1">
+    <rect x="0" y="25.9" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-2">
+    <rect x="0" y="50.3" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-3">
+    <rect x="0" y="74.7" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-4">
+    <rect x="0" y="99.1" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-5">
+    <rect x="0" y="123.5" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-6">
+    <rect x="0" y="147.9" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-7">
+    <rect x="0" y="172.3" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-8">
+    <rect x="0" y="196.7" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-9">
+    <rect x="0" y="221.1" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-466492634-line-10">
+    <rect x="0" y="245.5" width="2440" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#0c0c0c" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="2456" height="340.8" rx="8"/><text class="terminal-466492634-title" fill="#d9d9d9" text-anchor="middle" x="1228" y="27">Transfer&#160;worker&#160;—&#160;ledger&#160;events&#160;from&#160;job&#160;logs</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-466492634-clip-terminal)">
+    
+    <g class="terminal-466492634-matrix">
+    <text class="terminal-466492634-r1" x="0" y="20" textLength="24.4" clip-path="url(#terminal-466492634-line-0)">$&#160;</text><text class="terminal-466492634-r1" x="24.4" y="20" textLength="561.2" clip-path="url(#terminal-466492634-line-0)">KQL:&#160;ContainerAppConsoleLogs_CL&#160;(transfer&#160;job)</text><text class="terminal-466492634-r2" x="2440" y="20" textLength="12.2" clip-path="url(#terminal-466492634-line-0)">
+</text><text class="terminal-466492634-r2" x="2440" y="44.4" textLength="12.2" clip-path="url(#terminal-466492634-line-1)">
+</text><text class="terminal-466492634-r3" x="24.4" y="68.8" textLength="231.8" clip-path="url(#terminal-466492634-line-2)">at&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r3" x="292.8" y="68.8" textLength="1525" clip-path="url(#terminal-466492634-line-2)">event&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="68.8" textLength="12.2" clip-path="url(#terminal-466492634-line-2)">
+</text><text class="terminal-466492634-r2" x="0" y="93.2" textLength="1842.2" clip-path="url(#terminal-466492634-line-3)">&#160;━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━&#160;</text><text class="terminal-466492634-r2" x="2440" y="93.2" textLength="12.2" clip-path="url(#terminal-466492634-line-3)">
+</text><text class="terminal-466492634-r2" x="24.4" y="117.6" textLength="231.8" clip-path="url(#terminal-466492634-line-4)">2026-11-15&#160;08:40:41</text><text class="terminal-466492634-r2" x="292.8" y="117.6" textLength="1525" clip-path="url(#terminal-466492634-line-4)">DT-POC-0001&#160;operate&#160;transfer.started&#160;copy&#160;source/datasets/batch-001/&#160;-&gt;&#160;landing/datasets/batch-001/&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="117.6" textLength="12.2" clip-path="url(#terminal-466492634-line-4)">
+</text><text class="terminal-466492634-r2" x="24.4" y="142" textLength="231.8" clip-path="url(#terminal-466492634-line-5)">2026-11-15&#160;08:40:48</text><text class="terminal-466492634-r2" x="292.8" y="142" textLength="1525" clip-path="url(#terminal-466492634-line-5)">DT-POC-0001&#160;operate&#160;verify.passed&#160;21&#160;objects&#160;/&#160;43288648&#160;bytes,&#160;missing=0&#160;mismatched=0&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="142" textLength="12.2" clip-path="url(#terminal-466492634-line-5)">
+</text><text class="terminal-466492634-r2" x="24.4" y="166.4" textLength="231.8" clip-path="url(#terminal-466492634-line-6)">2026-11-15&#160;08:40:49</text><text class="terminal-466492634-r2" x="292.8" y="166.4" textLength="1525" clip-path="url(#terminal-466492634-line-6)">DT-POC-0001&#160;operate&#160;transfer.completed&#160;21&#160;files,&#160;43288648&#160;bytes&#160;(skipped&#160;0)&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="166.4" textLength="12.2" clip-path="url(#terminal-466492634-line-6)">
+</text><text class="terminal-466492634-r2" x="24.4" y="190.8" textLength="231.8" clip-path="url(#terminal-466492634-line-7)">2026-11-15&#160;08:42:08</text><text class="terminal-466492634-r2" x="292.8" y="190.8" textLength="1525" clip-path="url(#terminal-466492634-line-7)">DT-POC-0001&#160;operate&#160;transfer.started&#160;copy&#160;source/datasets/batch-002/&#160;-&gt;&#160;landing/datasets/batch-002/&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="190.8" textLength="12.2" clip-path="url(#terminal-466492634-line-7)">
+</text><text class="terminal-466492634-r2" x="24.4" y="215.2" textLength="231.8" clip-path="url(#terminal-466492634-line-8)">2026-11-15&#160;08:42:12</text><text class="terminal-466492634-r2" x="292.8" y="215.2" textLength="1525" clip-path="url(#terminal-466492634-line-8)">DT-POC-0001&#160;operate&#160;verify.passed&#160;21&#160;objects&#160;/&#160;50007112&#160;bytes,&#160;missing=0&#160;mismatched=0&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="215.2" textLength="12.2" clip-path="url(#terminal-466492634-line-8)">
+</text><text class="terminal-466492634-r2" x="24.4" y="239.6" textLength="231.8" clip-path="url(#terminal-466492634-line-9)">2026-11-15&#160;08:42:12</text><text class="terminal-466492634-r2" x="292.8" y="239.6" textLength="1525" clip-path="url(#terminal-466492634-line-9)">DT-POC-0001&#160;operate&#160;transfer.completed&#160;21&#160;files,&#160;50007112&#160;bytes&#160;(skipped&#160;0)&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-466492634-r2" x="2440" y="239.6" textLength="12.2" clip-path="url(#terminal-466492634-line-9)">
+</text><text class="terminal-466492634-r2" x="24.4" y="264" textLength="231.8" clip-path="url(#terminal-466492634-line-10)">2026-11-15&#160;08:43:12</text><text class="terminal-466492634-r2" x="292.8" y="264" textLength="1525" clip-path="url(#terminal-466492634-line-10)">DT-POC-9999&#160;operate&#160;transfer.rejected&#160;alice@contoso.example&#160;has&#160;no&#160;active&#160;transfer-operator&#160;activation&#160;for&#160;ticket&#160;DT-POC-9999</text><text class="terminal-466492634-r2" x="2440" y="264" textLength="12.2" clip-path="url(#terminal-466492634-line-10)">
+</text><text class="terminal-466492634-r2" x="2440" y="288.4" textLength="12.2" clip-path="url(#terminal-466492634-line-11)">
+</text>
+    </g>
+    </g>
+</svg>

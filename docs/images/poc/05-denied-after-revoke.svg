@@ -1,0 +1,65 @@
+<svg class="rich-terminal" viewBox="0 0 2092 98.8" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-2859366307-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-2859366307-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-2859366307-r1 { fill: #98e024;font-weight: bold }
+.terminal-2859366307-r2 { fill: #d9d9d9 }
+.terminal-2859366307-r3 { fill: #f4005f }
+.terminal-2859366307-r4 { fill: #f4005f;font-weight: bold }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-2859366307-clip-terminal">
+      <rect x="0" y="0" width="2073.0" height="47.8" />
+    </clipPath>
+    <clipPath id="terminal-2859366307-line-0">
+    <rect x="0" y="1.5" width="2074" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#0c0c0c" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="2090" height="96.8" rx="8"/><text class="terminal-2859366307-title" fill="#d9d9d9" text-anchor="middle" x="1045" y="27">Submitting&#160;without&#160;an&#160;active&#160;activation&#160;is&#160;refused</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-2859366307-clip-terminal)">
+    
+    <g class="terminal-2859366307-matrix">
+    <text class="terminal-2859366307-r1" x="0" y="20" textLength="24.4" clip-path="url(#terminal-2859366307-line-0)">$&#160;</text><text class="terminal-2859366307-r1" x="24.4" y="20" textLength="915" clip-path="url(#terminal-2859366307-line-0)">xl&#160;transfer&#160;-t&#160;DT-POC-0001&#160;-p&#160;batch-003/&#160;&#160;&#160;&#160;#&#160;after&#160;the&#160;role&#160;was&#160;given&#160;back</text><text class="terminal-2859366307-r2" x="2074" y="20" textLength="12.2" clip-path="url(#terminal-2859366307-line-0)">
+</text><text class="terminal-2859366307-r3" x="0" y="44.4" textLength="329.4" clip-path="url(#terminal-2859366307-line-1)">queue&#160;rejected&#160;the&#160;request&#160;</text><text class="terminal-2859366307-r4" x="329.4" y="44.4" textLength="12.2" clip-path="url(#terminal-2859366307-line-1)">(</text><text class="terminal-2859366307-r3" x="341.6" y="44.4" textLength="341.6" clip-path="url(#terminal-2859366307-line-1)">ServiceBusAuthorizationError</text><text class="terminal-2859366307-r4" x="683.2" y="44.4" textLength="12.2" clip-path="url(#terminal-2859366307-line-1)">)</text><text class="terminal-2859366307-r3" x="695.4" y="44.4" textLength="866.2" clip-path="url(#terminal-2859366307-line-1)">.&#160;Is&#160;transfer-operator&#160;active?&#160;`xl&#160;request&#160;transfer-operator&#160;-t&#160;DT-POC-</text><text class="terminal-2859366307-r4" x="1561.6" y="44.4" textLength="48.8" clip-path="url(#terminal-2859366307-line-1)">0001</text><text class="terminal-2859366307-r3" x="1622.6" y="44.4" textLength="36.6" clip-path="url(#terminal-2859366307-line-1)">...</text><text class="terminal-2859366307-r3" x="1659.2" y="44.4" textLength="12.2" clip-path="url(#terminal-2859366307-line-1)">`</text><text class="terminal-2859366307-r2" x="2074" y="44.4" textLength="12.2" clip-path="url(#terminal-2859366307-line-1)">
+</text>
+    </g>
+    </g>
+</svg>

@@ -1,0 +1,17 @@
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/.terraform.tfstate.lock.info
+infra/tfplan
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+# local
+.env
+.xl.env
+.redact.json

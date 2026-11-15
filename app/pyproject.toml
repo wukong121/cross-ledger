@@ -1,0 +1,39 @@
+[project]
+name = "crossledger"
+version = "0.1.0"
+description = "Compliant cross-border dataset transfer with just-in-time access and an end-to-end audit ledger on Azure."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "azure-identity>=1.19",
+  "azure-storage-blob>=12.24",
+  "azure-servicebus>=7.13",
+  "azure-monitor-ingestion>=1.0.4",
+  "azure-monitor-query>=1.4",
+  "azure-confidentialledger>=1.1.1",
+  "httpx>=0.28",
+  "typer>=0.15",
+  "rich>=13.9",
+]
+
+[project.scripts]
+xl = "crossledger.cli:app"
+crossledger = "crossledger.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.8"]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crossledger"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501", "SIM105", "SIM115"]
