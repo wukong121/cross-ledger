@@ -1,0 +1,39 @@
+#cloud-config
+# PoC simulator: rclone + Azure CLI + a local S3-compatible endpoint (stand-in for the domestic object store).
+package_update: true
+packages: [unzip, jq, curl]
+write_files:
+  - path: /root/.config/rclone/rclone.conf
+    permissions: "0600"
+    content: |
+      # Overseas source: Entra ID auth through the signed-in Azure CLI user (az login --use-device-code).
+      # No keys, no SAS: access exists only while that user's PIM activation is live.
+      [overseas]
+      type = azureblob
+      account = ${source_account}
+      use_az = true
+
+      # Domestic S3-compatible object storage. Here: `rclone serve s3` on localhost
+      # (systemd unit below). In production: the domestic cloud's object storage endpoint.
+      [domestic]
+      type = s3
+      provider = Rclone
+      endpoint = http://127.0.0.1:9000
+      access_key_id = xlsimaccesskey
+      secret_access_key = ${s3_secret}
+  - path: /etc/systemd/system/sim-s3.service
+    content: |
+      [Unit]
+      Description=Local S3-compatible endpoint (stand-in for domestic object storage)
+      After=network-online.target
+      [Service]
+      ExecStart=/usr/bin/rclone serve s3 /data/s3 --addr 127.0.0.1:9000 --auth-key xlsimaccesskey,${s3_secret}
+      Restart=always
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  - curl -fsSL https://rclone.org/install.sh | bash
+  - mkdir -p /data/s3/datasets
+  - systemctl daemon-reload && systemctl enable --now sim-s3
+  - touch /var/lib/xl-sim-ready

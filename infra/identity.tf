@@ -84,17 +84,22 @@ locals {
   }
 
   # Standing (non-PIM) role assignments — workloads and read-only audiences only.
-  standing_assignments = {
+  standing_assignments = merge(local.base_assignments, var.enable_managed_transfer ? local.managed_transfer_assignments : {})
+
+  # Only with enable_managed_transfer.
+  managed_transfer_assignments = {
     # transfer worker: read source, write landing, consume its queue, emit events
     xfer_src_read   = { scope = azurerm_storage_account.source.id, role = "Storage Blob Data Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_land_write = { scope = azurerm_storage_account.landing.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.transfer.principal_id }
     # Data Owner on the queue only: KEDA's Service Bus scaler needs to read queue runtime properties.
-    xfer_queue        = { scope = azurerm_servicebus_queue.transfer_requests.id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
+    xfer_queue        = { scope = local.bus_queue_id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_pim_read     = { scope = azurerm_resource_group.gov.id, role = "Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_audit_append = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_dcr          = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_acr          = { scope = azurerm_container_registry.this.id, role = "AcrPull", principal = azurerm_user_assigned_identity.transfer.principal_id }
+  }
 
+  base_assignments = {
     # collector: read PIM state + logs on all three scopes, append to ledger
     col_src_read  = { scope = azurerm_resource_group.source.id, role = "Reader", principal = azurerm_user_assigned_identity.collector.principal_id }
     col_land_read = { scope = azurerm_resource_group.landing.id, role = "Reader", principal = azurerm_user_assigned_identity.collector.principal_id }

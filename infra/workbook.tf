@@ -31,7 +31,7 @@ locals {
 
   wb_q_anomalies = <<-KQL
     XLedger_CL
-    | where EventType in ("transfer.rejected", "verify.failed", "access.denied", "transfer.failed", "data.accessed.outside-window", "data.access.denied", "rbac.changed")
+    | where EventType in ("transfer.rejected", "verify.failed", "access.denied", "transfer.failed", "data.accessed.outside-window", "data.access.denied", "rbac.changed", "audit.gap", "audit.partial")
     | project TimeGenerated, TicketId, EventType, ActorName, Message
     | order by TimeGenerated desc
   KQL

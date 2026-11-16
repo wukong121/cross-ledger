@@ -7,7 +7,7 @@
 | Azure 订阅 | 部署者在订阅（或目标资源组的上级作用域）上拥有 **Owner** 权限：创建资源、配置 PIM 策略、分配角色 |
 | Entra ID | 租户具备 **Microsoft Entra ID P2**（或 Entra ID Governance）许可证，PIM 需要；部署者能创建安全组（默认用户权限即可）|
 | 工具 | Azure CLI ≥ 2.60、Terraform ≥ 1.9、[uv](https://docs.astral.sh/uv/)（Python 3.11+ 由 uv 自动管理）。**不需要本地 Docker**，镜像通过 `az acr build` 在云端构建 |
-| 区域 | 两个区域：一个模拟“境外源”，一个模拟“境内落地区”。Confidential Ledger 仅在部分区域提供，可通过 `confidential_ledger_location` 单独指定 |
+| 区域 | 源数据所在区域；另一个区域用作落地区（可选托管搬运组件使用，PoC 中模拟境内）。Confidential Ledger 仅在部分区域提供，可通过 `confidential_ledger_location` 单独指定 |
 
 订阅需要一次性注册 VNet 模式 Container Apps 所需的网络特性（`deploy.sh` 会自动检查并注册）：
 
@@ -39,7 +39,10 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars   # 该文件已被 .gi
 | `it_ops_owner_mode` | `active` | `eligible` = IT 的 Owner 也走 PIM 激活（生产推荐）|
 | `max_activation_hours` | `8` | 单次激活的最长时长 |
 | `eligibility_days` | `180` | 资格的有效期（到期需要重新认证）|
-| `transfer_parallelism` | `4` | 同时运行的传输分片数 |
+| `source_public_access` | `private` | 源存储的网络入口。`private`（推荐）：只允许 Private Endpoint；`perimeter`：公网入口由 Network Security Perimeter 治理，只放行 `perimeter_allowed_ips` |
+| `perimeter_allowed_ips` | `[]` | `perimeter` 模式下允许的公网 CIDR（国内云 NAT 网关 / IDC 的固定出口 IP）|
+| `enable_managed_transfer` | `false` | 可选的托管搬运组件（Service Bus + Container Apps Job + AzCopy）。默认的数据通道是 rclone 自助拉取，不需要它 |
+| `transfer_parallelism` | `4` | 托管搬运组件同时运行的分片数 |
 | `collector_cron` | `*/5 * * * *` | collector 的运行频率 |
 | `ledger_retention_days` | `2555` | WORM 保留期（约 7 年）|
 | `ledger_immutability_locked` | `false` | 锁定 WORM 策略。**锁定后不可逆**，PoC 请保持 `false` |
@@ -61,7 +64,7 @@ az account set -s <subscription-id>
 
 1. `terraform apply`（阶段 1）：创建资源组、存储、Entra 组、托管身份、PIM 策略与资格、Log Analytics、DCR、Confidential Ledger、ACR、Container Apps 环境与 Job（先使用占位镜像）
 2. `az acr build`：在 ACR 中构建 `app/` 镜像（AzCopy + Python 3.12）
-3. `terraform apply`（阶段 2）：把两个 Job 切换到新镜像
+3. `terraform apply`（阶段 2）：把 Job 切换到新镜像
 4. 把 `cli_env` 输出写入仓库根目录的 `.xl.env`，供 `xl` CLI 使用
 
 部署完成后：
@@ -79,18 +82,32 @@ cd app && uv run xl roles   # 检查自己的资格
 |---|---|
 | `rg-<prefix>-<sfx>-source` | 源存储账号 `<prefix><sfx>src`（容器 `datasets`，开启版本控制与软删除）|
 | `rg-<prefix>-<sfx>-landing` | 落地区存储账号 `<prefix><sfx>land`（容器 `datasets`，含 `_manifests/`）|
-| `rg-<prefix>-<sfx>-gov` | VNet `vnet-*`（`snet-cae` 子网接入 Container Apps，`snet-pe` 子网放 4 个 Blob Private Endpoint）+ Private DNS `privatelink.blob.core.windows.net` · Service Bus `sb-*`（队列 `transfer-requests`，自带死信队列）· 控制账号 `<prefix><sfx>ctl`（容器 `collector-state`）· 审计账号 `<prefix><sfx>audit`（WORM 容器 `ledger`）· Log Analytics `log-*` · DCE/DCR · Confidential Ledger `acl-*` · ACR · Container Apps 环境 `cae-*` · Job `job-*-transfer` / `job-*-collector` / `job-*-vendor`（PoC）· 托管身份 ×3 · Workbook |
+| `rg-<prefix>-<sfx>-gov` | VNet `vnet-*`（`snet-cae` 子网接入 Container Apps，`snet-pe` 子网放 4 个 Blob Private Endpoint）+ Private DNS `privatelink.blob.core.windows.net` · 控制账号 `<prefix><sfx>ctl`（容器 `collector-state`）· 审计账号 `<prefix><sfx>audit`（WORM 容器 `ledger`）· Log Analytics `log-*` · DCE/DCR · Confidential Ledger `acl-*` · ACR · Container Apps 环境 `cae-*` · Job `job-*-collector` / `job-*-vendor`（PoC）· 托管身份 · Workbook · `perimeter` 模式下的 NSP `nsp-*` · 可选组件：Service Bus `sb-*`、Job `job-*-transfer` |
 | Entra ID | 安全组 `<prefix>-it-ops-<sfx>`、`<prefix>-data-team-<sfx>`、`<prefix>-auditors-<sfx>` |
-| PIM | 3 份角色管理策略 + 3 条组级资格分配 |
+| PIM | 每个数据角色一份角色管理策略 + 资格分配（`source-reader`、`landing-writer`，启用托管搬运时还有 `transfer-operator`）|
 | 订阅 | 诊断设置：Activity Log → Log Analytics |
 
 ### 网络说明
 
-存储账号**不开放公网**。以下操作在任何能访问 Azure 公共端点的地方都可以执行：`xl request / approve / transfer / timeline / tickets / ledger-verify`，它们只调用 ARM、Service Bus、Log Analytics 和 Confidential Ledger。
+- **治理平面**的存储账号（审计归档、collector 状态）只能通过 Private Endpoint 访问，collector 运行在接入 VNet 的 Container Apps 中
+- **源存储**按 `source_public_access` 二选一：
+  - `private`：只有能访问 Private Endpoint 的网络（与 `vnet-*` 对等互连的 VNet、经专线/VPN 接入的网络）可以读数据；对等互连的 VNet 需要链接 Private DNS 区域 `privatelink.blob.core.windows.net`
+  - `perimeter`：`publicNetworkAccess = SecuredByPerimeter`，只有 `perimeter_allowed_ips` 中的公网 IP 可以连接，其他来源返回 `not authorized by network security perimeter`。允许和拒绝的连接都记录在 Log Analytics 的 `NSPAccessLogs` 表中
+- `xl request / approve / timeline / tickets / ledger-verify` 只调用 ARM、Log Analytics 和 Confidential Ledger，在任何能访问 Azure 公共端点的地方都可以执行
 
-**直接读写数据**（例如激活 `source-reader` 后用 `az storage blob list` 浏览）则必须位于能解析并访问 Private Endpoint 的网络中：与 `vnet-*` 对等互连的 VNet、经 VPN/ExpressRoute 接入的企业网，或 VNet 内的跳板机/Dev Box。对等互连的 VNet 还需要链接 Private DNS 区域 `privatelink.blob.core.windows.net`。
+> **不要直接打开存储账号的公网访问。** 很多组织（包括不少测试订阅）会用 Azure Policy 强制关闭存储公网访问，而 `SecuredByPerimeter` 是这类策略通常会豁免的合规做法。
+>
+> Terraform 的 azurerm provider 已设置 `storage { data_plane_available = false }`：存储的所有配置都通过 ARM 管理，部署者的机器不需要能访问存储的数据平面。
 
-> 部分组织（包括很多测试订阅）用 Azure Policy 强制关闭存储账号的公网访问。本方案默认就是私网，不受这类策略影响。
+### 部署时可能遇到的问题
+
+| 现象 | 处理 |
+|---|---|
+| 存储账号的公网访问被自动关闭 | 组织的 Azure Policy 强制关闭了存储公网访问；本方案默认就是私网，公网场景请使用 `perimeter` 模式 |
+| Container Apps 环境创建失败，提示 `AllowBringYourOwnPublicIpAddress` | 订阅需要一次性注册该网络特性；`deploy.sh` 会自动处理 |
+| 新加入组的成员申请时报 `RoleAssignmentDoesNotExist` | PIM 识别新组成员可能需要较长时间（PoC 中超过 40 分钟）。等待并重新登录，或设置 `eligibility_mode = "user"` |
+| `terraform` 报 Graph 401：`TokenIssuedBeforeRevocationTimestamp` | 账号会话被撤销（例如改了密码），Azure CLI 缓存的旧令牌已失效。重新 `az login`；若仍报错，清除 Azure CLI 的访问令牌缓存后重试 |
+| 公共 IP 的 `ip_tags` 出现漂移 | 部分订阅会由平台自动添加 IP 标签；已在代码中忽略该属性 |
 
 ## 5. 增删人员
 
@@ -119,6 +136,15 @@ uv run ruff check src tests
 
 > 如果已经把 `ledger_immutability_locked` 设为 `true`，审计账号要等所有归档 blob 过了保留期才能删除。这是 WORM 的设计目的。
 
-## 8. 境内拉取节点（生产）
+## 8. PoC：模拟“国内环境”的测试机
 
-PoC 只部署 Azure 侧。生产环境中，境内本地 IDC 和第三方公有云的 K8s 集群接入 Azure Arc，并部署同一个镜像作为拉取节点，详见 [production.md](production.md)。
+`scripts/sim-host.sh` 在**单独的资源组和 VNet**（不与方案 VNet 对等互连）中创建一台小虚拟机，模拟国内公有云的开发机 / 开发容器和搬运机：只通过自己的公网 IP 访问源数据，不开放任何入站端口（通过 `az vm run-command` 操作），预装 rclone、Azure CLI，并用 `rclone serve s3` 在本机模拟国内的 S3 兼容对象存储。
+
+```bash
+SIM_LOCATIONS="<region-1> <region-2>" ./scripts/sim-host.sh up    # 输出公网 IP；小规格 VM 容量不足时自动换规格/区域
+# 把该 IP 加入 infra/terraform.tfvars：perimeter_allowed_ips = ["<ip>/32"]，并设置 source_public_access = "perimeter"
+terraform -chdir=infra apply
+./scripts/sim-host.sh down                                         # 用完删除
+```
+
+测试机属于“客户的外部环境”，因此刻意不放在方案的 Terraform 里。

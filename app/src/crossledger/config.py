@@ -56,6 +56,7 @@ class Settings:
     operator_role_id: str = ""
     worker_identity: str = ""
     service_identities: list[str] = field(default_factory=list)
+    known_services: dict[str, str] = field(default_factory=dict)  # object id -> label
     roles: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def role_by_scope(self, scope: str, role_definition_id: str) -> str:
@@ -107,5 +108,6 @@ def settings() -> Settings:
         operator_role_id=_get("XL_OPERATOR_ROLE_ID") or roles.get("transfer-operator", {}).get("role", ""),
         worker_identity=_get("XL_WORKER_IDENTITY"),
         service_identities=[x for x in _get("XL_SERVICE_IDENTITIES").split(",") if x],
+        known_services={k.lower(): v for k, v in json.loads(_get("XL_KNOWN_SERVICES") or "{}").items()},
         roles=roles,
     )
