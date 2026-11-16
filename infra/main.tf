@@ -20,19 +20,12 @@ locals {
   image_is_placeholder = var.container_image == null
 }
 
-# Three resource groups = three blast radii with separate RBAC:
-#   source  : the purchased dataset (overseas)
-#   landing : the landing zone (destination country; separate cloud in production)
+# Two resource groups = two blast radii with separate RBAC:
+#   source  : the purchased dataset
 #   gov     : transfer plane + governance / audit plane
 resource "azurerm_resource_group" "source" {
   name     = "rg-${local.name}-source"
   location = var.source_location
-  tags     = var.tags
-}
-
-resource "azurerm_resource_group" "landing" {
-  name     = "rg-${local.name}-landing"
-  location = var.landing_location
   tags     = var.tags
 }
 

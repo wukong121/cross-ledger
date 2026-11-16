@@ -3,9 +3,6 @@ subscription_id  = "00000000-0000-0000-0000-000000000000"
 
 # Overseas side: where the purchased dataset lives.
 source_location  = "<overseas-region>"
-# Landing zone. The PoC uses any second region to simulate the destination
-# (production: on-prem / third-party cloud, written by pull-mode agents).
-landing_location = "<landing-region>"
 # Confidential Ledger is only available in some regions; leave null to use source_location.
 # confidential_ledger_location = "<ledger-region>"
 

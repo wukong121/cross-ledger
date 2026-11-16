@@ -576,7 +576,7 @@ def anomaly_events(client: LogsQueryClient, windows: list[Window], state: State)
     until = now - LOG_LATENCY
     if until <= since:
         return []
-    accounts = {_account(sc): sc for sc in (s.source_scope, s.landing_scope) if sc}
+    accounts = {_account(sc): sc for sc in (s.source_scope,) if sc}
     acct_list = ", ".join(f"'{a}'" for a in accounts)
     svc = ", ".join(f"'{x}'" for x in {*s.service_identities, s.worker_identity} if x) or "''"
     kql = f"""

@@ -18,15 +18,6 @@ variable "source_location" {
   type        = string
 }
 
-variable "landing_location" {
-  description = <<-EOT
-    Region of the landing zone storage. The PoC uses a second Azure region to simulate the
-    destination; in production the destination is on-prem / third-party cloud storage written
-    by pull-mode agents (see docs/production.md).
-  EOT
-  type        = string
-}
-
 variable "governance_location" {
   description = "Region for the governance plane (Log Analytics, ledger, transfer jobs). Defaults to source_location."
   type        = string
@@ -190,10 +181,11 @@ variable "perimeter_allowed_ips" {
 
 variable "enable_managed_transfer" {
   description = <<-EOT
-    Optional managed bulk-transfer component: Service Bus request queue + KEDA-triggered
-    Container Apps Job that copies source -> landing with AzCopy under a service identity.
-    The default data path is self-service rclone pulls with the user's own (PIM-activated)
-    identity, which needs none of this.
+    Optional managed transfer component: transfer jobs are submitted to a Service Bus queue and
+    executed by a KEDA-triggered Container Apps Job that runs rclone under its managed identity —
+    reading the source over its Private Endpoint and writing to the destination object storage
+    (S3-compatible) whose credentials are kept in Key Vault. Egress uses a fixed IP (NAT Gateway).
+    The default data path (self-service rclone with the user's own identity) needs none of this.
   EOT
   type        = bool
   default     = false
@@ -207,4 +199,22 @@ variable "known_service_principals" {
   EOT
   type        = map(string)
   default     = {}
+}
+
+variable "secrets_admin_ips" {
+  description = "Public CIDRs from which IT ops may manage Key Vault secrets (managed transfer only)."
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_emails" {
+  description = "E-mail addresses notified when the ledger records failures, rejections or anomalies."
+  type        = list(string)
+  default     = []
+}
+
+variable "rclone_transfers" {
+  description = "Parallel file transfers per shard in the managed transfer worker (rclone --transfers)."
+  type        = number
+  default     = 16
 }

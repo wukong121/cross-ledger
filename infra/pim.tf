@@ -24,7 +24,7 @@ locals {
     transfer-operator = {
       scope       = local.bus_namespace_id
       role        = local.role_ids.bus_sender
-      description = "Submit transfer requests (source -> landing)"
+      description = "Submit managed transfer jobs"
     }
   } : {})
 
@@ -33,11 +33,6 @@ locals {
       scope       = azurerm_storage_account.source.id
       role        = local.role_ids.blob_reader
       description = "Browse / sample the overseas source dataset"
-    }
-    landing-writer = {
-      scope       = azurerm_storage_account.landing.id
-      role        = local.role_ids.blob_contributor
-      description = "Read / write / curate data in the landing zone"
     }
   }
 }

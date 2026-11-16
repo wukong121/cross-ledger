@@ -11,6 +11,8 @@
 | rclone 目标 | 本地路径 | S3 兼容对象存储（各云厂商在 rclone 中都有现成的 provider）|
 | 申请的角色 | `source-reader` | `source-reader` |
 
+> 如果源数据不允许对外开放、搬运人员不应持有读权限，或者需要长时间无人值守的批量搬运，可以改用**托管搬运组件**：数据人员只提交任务，由 Azure 上的 worker 以服务身份运行 rclone 完成搬运（见 [architecture.md](architecture.md) 第 5.2 节、[runbook.md](runbook.md) 第 6 节）。
+
 ## 2. 前置条件
 
 | 项 | 说明 |

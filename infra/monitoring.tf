@@ -2,7 +2,7 @@
 # Observability + the queryable half of the ledger.
 #   XLedger_CL           normalized lifecycle events (request→approve→operate→revoke)
 #   AzureActivity        control-plane operations (subscription diagnostic setting)
-#   StorageBlobLogs      every data-plane read/write on source & landing
+#   StorageBlobLogs      every data-plane read/write on the source dataset
 #   ContainerAppConsole* transfer / collector job logs
 # -----------------------------------------------------------------------------
 
@@ -21,7 +21,7 @@ locals {
     { name = "ActorType", type = "string", description = "User | Group | ServicePrincipal | ManagedIdentity | System" },
     { name = "Role", type = "string", description = "Azure role involved, if any." },
     { name = "Scope", type = "string", description = "Azure resource scope involved." },
-    { name = "Route", type = "string", description = "Data route, e.g. source/datasets/a/ -> landing/datasets/a/." },
+    { name = "Route", type = "string", description = "Data route, e.g. source/datasets/a/ -> domestic:bucket/a/." },
     { name = "Status", type = "string", description = "Outcome / state reported by the source system." },
     { name = "Message", type = "string", description = "Human-readable one-liner." },
     { name = "Details", type = "dynamic", description = "Raw, source-specific payload." },
@@ -108,12 +108,11 @@ resource "azurerm_monitor_diagnostic_setting" "activity" {
   enabled_log { category = "Policy" }
 }
 
-# Data plane: every blob read/write/delete on source and landing.
+# Data plane: every blob read/write/delete on the source (and the audit archive).
 resource "azurerm_monitor_diagnostic_setting" "blob" {
   for_each = {
-    source  = azurerm_storage_account.source.id
-    landing = azurerm_storage_account.landing.id
-    audit   = azurerm_storage_account.audit.id
+    source = azurerm_storage_account.source.id
+    audit  = azurerm_storage_account.audit.id
   }
   name                       = "${local.name}-blob"
   target_resource_id         = "${each.value}/blobServices/default"

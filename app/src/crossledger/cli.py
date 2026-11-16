@@ -71,7 +71,7 @@ def roles() -> None:
 
 @app.command()
 def request(
-    role: Annotated[str, typer.Argument(help="source-reader | transfer-operator | landing-writer")],
+    role: Annotated[str, typer.Argument(help="source-reader | transfer-operator")],
     ticket: Ticket,
     reason: Reason,
     hours: Annotated[float, typer.Option(help="Activation length (capped by policy)")] = 2,
@@ -143,7 +143,7 @@ def transfer(
         list[str], typer.Option("--prefix", "-p", help="Source prefix (repeatable). One shard each.")
     ] = [],  # noqa: B006
     manifest: Annotated[Path | None, typer.Option(help="File with one source prefix per line")] = None,
-    dest_root: Annotated[str, typer.Option(help="Prepended to each prefix in the landing container")] = "",
+    dest_root: Annotated[str, typer.Option(help="Prepended to each prefix at the destination")] = "",
     no_verify: Annotated[bool, typer.Option("--no-verify", help="Skip md5/size verification")] = False,
 ) -> None:
     """Submit a transfer (requires an activated transfer-operator role for the same ticket)."""
@@ -160,7 +160,7 @@ def transfer(
     s = settings()
     sb = ServiceBusClient(s.bus_namespace, credential=credential())
     sender = sb.get_queue_sender(s.bus_queue)
-    t = Table("shard", "request id", "source prefix", "landing prefix")
+    t = Table("shard", "request id", "source prefix", "destination prefix")
     for i, p in enumerate(prefixes, 1):
         p = p.strip("/") + "/"
         body = {

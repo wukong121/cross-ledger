@@ -175,29 +175,34 @@ def review(approval_id: str, approve: bool, justification: str) -> list[dict]:
     return done
 
 
-def active_activation_for_ticket(scope: str, principal_id: str, role_guid: str, ticket: str) -> dict | None:
-    """The *provisioned, unexpired* SelfActivate request of a principal for a role carrying this ticket."""
-    now = datetime.now(UTC)
-    reqs = schedule_requests(scope, f"principalId eq '{principal_id}'")
+def activation_at(reqs: list[dict], role_guid: str, ticket: str, at: datetime) -> dict | None:
+    """The SelfActivate request (for this role + ticket) whose activation window covered `at`
+    and had not been handed back / removed before `at`. Pure function over PIM schedule requests."""
     for r in sorted(reqs, key=lambda r: r["properties"].get("createdOn", ""), reverse=True):
         p = r["properties"]
-        if p.get("requestType") != "SelfActivate" or p.get("status") != "Provisioned":
+        if p.get("requestType") != "SelfActivate" or p.get("status") not in ("Provisioned", "Revoked"):
             continue
         if not p.get("roleDefinitionId", "").lower().endswith(role_guid.lower()):
             continue
         if (p.get("ticketInfo") or {}).get("ticketNumber") != ticket:
             continue
         start, end = window(r)
-        if start and end and start <= now <= end:
-            # A later SelfDeactivate would revoke it; make sure none exists.
-            for d in reqs:
-                dp = d["properties"]
-                if (
-                    dp.get("requestType") in ("SelfDeactivate", "AdminRemove")
-                    and dp.get("roleDefinitionId", "").lower() == p["roleDefinitionId"].lower()
-                    and (parse_time(dp.get("createdOn")) or now) >= start
-                    and dp.get("status") in ("Provisioned", "Revoked", "Granted")
-                ):
-                    return None
-            return r
+        if not (start and end and start <= at <= end):
+            continue
+        ended_early = any(
+            d["properties"].get("requestType") in ("SelfDeactivate", "AdminRemove")
+            and d["properties"].get("roleDefinitionId", "").lower() == p["roleDefinitionId"].lower()
+            and d["properties"].get("status") in ("Provisioned", "Revoked", "Granted")
+            and start <= (parse_time(d["properties"].get("createdOn")) or at) < at
+            for d in reqs
+        )
+        return None if ended_early else r
     return None
+
+
+def active_activation_for_ticket(
+    scope: str, principal_id: str, role_guid: str, ticket: str, at: datetime | None = None
+) -> dict | None:
+    """Was the principal's role activation for this ticket in force at `at` (default: now)?"""
+    reqs = schedule_requests(scope, f"principalId eq '{principal_id}'")
+    return activation_at(reqs, role_guid, ticket, at or datetime.now(UTC))

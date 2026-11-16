@@ -13,6 +13,8 @@
 locals {
   perimeter_enabled = var.source_public_access == "perimeter"
   perimeter_ips     = distinct(var.perimeter_allowed_ips)
+  # The perimeter also governs Key Vault when the managed transfer component is on.
+  nsp_needed = local.perimeter_enabled || var.enable_managed_transfer
 }
 
 resource "azapi_update_resource" "source_public_access" {
@@ -27,7 +29,7 @@ resource "azapi_update_resource" "source_public_access" {
 }
 
 resource "azurerm_network_security_perimeter" "this" {
-  count               = local.perimeter_enabled ? 1 : 0
+  count               = local.nsp_needed ? 1 : 0
   name                = "nsp-${local.name}"
   resource_group_name = azurerm_resource_group.gov.name
   location            = azurerm_resource_group.gov.location
@@ -58,7 +60,7 @@ resource "azurerm_network_security_perimeter_association" "source" {
 
 # Perimeter access logs (allowed + denied connections) -> Log Analytics.
 resource "azurerm_monitor_diagnostic_setting" "perimeter" {
-  count                      = local.perimeter_enabled ? 1 : 0
+  count                      = local.nsp_needed ? 1 : 0
   name                       = "${local.name}-nsp"
   target_resource_id         = azurerm_network_security_perimeter.this[0].id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
@@ -67,14 +69,20 @@ resource "azurerm_monitor_diagnostic_setting" "perimeter" {
 }
 
 # IMPORTANT: a resource in an Enforced perimeter can only send traffic to resources in
-# the same perimeter — including its diagnostic logs. Without this association the
-# source account's StorageBlobLogs silently stop flowing to Log Analytics, and the
-# ledger loses the "who read what" evidence. Learning mode keeps the workspace's own
-# public query / ingestion behaviour unchanged.
+# the same perimeter — including its diagnostic logs. Without the workspace in the
+# perimeter, the source account's StorageBlobLogs (and Key Vault audit logs) silently
+# stop flowing to Log Analytics, and the ledger loses its evidence. Learning mode keeps
+# the workspace's own public query / ingestion behaviour unchanged.
+resource "azurerm_network_security_perimeter_profile" "governance" {
+  count                         = local.nsp_needed ? 1 : 0
+  name                          = "governance"
+  network_security_perimeter_id = azurerm_network_security_perimeter.this[0].id
+}
+
 resource "azurerm_network_security_perimeter_association" "workspace" {
-  count                                 = local.perimeter_enabled ? 1 : 0
+  count                                 = local.nsp_needed ? 1 : 0
   name                                  = "log-analytics"
-  network_security_perimeter_profile_id = azurerm_network_security_perimeter_profile.source[0].id
+  network_security_perimeter_profile_id = azurerm_network_security_perimeter_profile.governance[0].id
   resource_id                           = azurerm_log_analytics_workspace.this.id
   access_mode                           = "Learning"
 }

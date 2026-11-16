@@ -78,3 +78,60 @@ def test_classify_access():
     )
     # another account is never covered by this window
     assert classify_access("alice", "land", after, True, [w], None)[0] == "data.accessed.outside-window"
+
+
+def test_destination_from_secret_maps_rclone_options(tmp_path):
+    from crossledger.worker import Destination
+
+    d = Destination.from_dict(
+        {
+            "name": "domestic",
+            "bucket": "datasets",
+            "type": "s3",
+            "provider": "Other",
+            "endpoint": "https://oss.example.com",
+            "access_key_id": "AK",
+            "secret_access_key": "SK",
+            "ca_cert_pem": "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n",
+        }
+    )
+    assert (d.name, d.bucket) == ("domestic", "datasets")
+    assert d.env["RCLONE_CONFIG_DST_TYPE"] == "s3" and d.env["RCLONE_CONFIG_DST_ENDPOINT"] == "https://oss.example.com"
+    assert "RCLONE_CONFIG_DST_BUCKET" not in d.env and "RCLONE_CONFIG_DST_CA_CERT_PEM" not in d.env
+    assert open(d.ca_cert_file).read().startswith("-----BEGIN CERTIFICATE-----")
+
+
+def test_destination_ca_is_added_to_system_roots(tmp_path, monkeypatch):
+    from crossledger import worker
+
+    roots = tmp_path / "roots.pem"
+    roots.write_text("-----BEGIN CERTIFICATE-----\nSYSTEM\n-----END CERTIFICATE-----\n")
+    monkeypatch.setattr(worker, "SYSTEM_CA_BUNDLES", (str(roots),))
+    d = worker.Destination.from_dict(
+        {
+            "bucket": "b",
+            "type": "s3",
+            "ca_cert_pem": "-----BEGIN CERTIFICATE-----\nPRIVATE\n-----END CERTIFICATE-----\n",
+        }
+    )
+    bundle = open(d.ca_cert_file).read()
+    assert "SYSTEM" in bundle and "PRIVATE" in bundle
+
+
+def test_activation_valid_at_submission_time():
+    from crossledger.pim import activation_at
+
+    role = "/subscriptions/s/providers/Microsoft.Authorization/roleDefinitions/abc"
+    act = {"name": "act", "properties": {
+        "requestType": "SelfActivate", "status": "Provisioned", "roleDefinitionId": role,
+        "ticketInfo": {"ticketNumber": "T-1"}, "createdOn": "2026-01-01T10:00:00Z",
+        "scheduleInfo": {"startDateTime": "2026-01-01T10:00:00Z", "expiration": {"duration": "PT2H"}}}}
+    revoke = {"name": "rev", "properties": {
+        "requestType": "SelfDeactivate", "status": "Revoked", "roleDefinitionId": role,
+        "createdOn": "2026-01-01T10:30:00Z"}}
+    t = lambda hm: datetime(2026, 1, 1, *hm, tzinfo=UTC)  # noqa: E731
+    assert activation_at([act], "abc", "T-1", t((10, 15)))["name"] == "act"
+    assert activation_at([act], "abc", "OTHER", t((10, 15))) is None          # wrong ticket
+    assert activation_at([act], "abc", "T-1", t((12, 30))) is None            # expired
+    assert activation_at([act, revoke], "abc", "T-1", t((10, 20)))["name"] == "act"  # submitted before hand-back
+    assert activation_at([act, revoke], "abc", "T-1", t((10, 45))) is None    # submitted after hand-back

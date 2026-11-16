@@ -51,10 +51,9 @@ resource "azurerm_private_dns_zone_virtual_network_link" "blob" {
 
 locals {
   blob_endpoints = {
-    source  = azurerm_storage_account.source.id
-    landing = azurerm_storage_account.landing.id
-    audit   = azurerm_storage_account.audit.id
-    ctl     = azurerm_storage_account.ctl.id
+    source = azurerm_storage_account.source.id
+    audit  = azurerm_storage_account.audit.id
+    ctl    = azurerm_storage_account.ctl.id
   }
 }
 

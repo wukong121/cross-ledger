@@ -28,7 +28,7 @@ flowchart LR
       WORM[("WORM Blob 归档")]
       WB["Workbook 台账视图"]
     end
-    OPT["可选：托管搬运组件<br/>Service Bus + Container Apps Job（AzCopy）"]
+    OPT["可选：托管搬运组件<br/>Service Bus + Container Apps Job（rclone，服务身份）"]
   end
   subgraph CN["境内"]
     DEV["国内公有云<br/>开发机 / 开发容器（场景 A）"]
@@ -46,7 +46,7 @@ flowchart LR
   LA -. "谁在窗口内读了什么" .-> JC
   JC --> ACL & LA & WORM
   LA --> WB
-  OPT -. "可选" .-> SRC
+  SRC -. "私网读取" .-> OPT -. "可选：固定出口 IP" .-> OBJ
 ```
 
 整个方案拆成四个平面，相互解耦：
@@ -62,7 +62,7 @@ flowchart LR
 
 | 产品 | 用途 | 为什么选它 |
 |---|---|---|
-| **Azure Blob Storage** | 源数据 / 审计归档 / collector 状态 | 原生对象存储；rclone、AzCopy、各类 SDK 都原生支持，且支持 Entra 身份认证 |
+| **Azure Blob Storage** | 源数据 / 审计归档 / collector 状态 | 原生对象存储；rclone 及各类 SDK 都原生支持，且支持 Entra 身份认证 |
 | **Microsoft Entra ID + PIM** | 人员身份、即时授权、审批 | 企业身份基座；PIM 原生支持审批、工单号、理由、时限、到期收回，且本身留痕 |
 | **Network Security Perimeter** | 公网模式下的源存储入口 | 按来源 IP 白名单治理 PaaS 的公网访问，拒绝记录可审计；比直接打开存储防火墙更规范 |
 | **VNet + Private Endpoint + Private DNS** | 私有模式下的数据入口；治理平面内部访问 | 存储不暴露公网（推荐的最佳实践）|
@@ -74,6 +74,9 @@ flowchart LR
 | **Managed Identity** | 工作负载身份 | 全链路零密钥、零 SAS |
 | **Azure Container Registry** | 镜像仓库 | `az acr build` 在云端构建，本地无需 Docker |
 | **Azure Service Bus**（可选组件）| 托管搬运的请求队列 | 只允许 Entra；原生死信队列、锁续期；KEDA 原生支持 |
+| **Azure Key Vault**（可选组件）| 目的地对象存储的访问凭证 | RBAC 授权、读取全程审计；由网络安全边界治理；轮换凭证无需重新部署 |
+| **Azure NAT Gateway**（可选组件）| 搬运 worker 的固定出口 IP | 国内对象存储只需把一个 IP 加入白名单 |
+| **Azure Monitor 告警** | 运维通知 | 台账出现失败、拒绝、校验失败、证据缺失或越权访问时，邮件通知 IT 运维 |
 | **Terraform（azurerm / azuread / azapi）** | 基础设施即代码 | 业界主流的 IaC 工具 |
 | **rclone**（开源，客户侧）| 数据搬运工具 | 客户已在使用；同时支持 Azure Blob（Entra 身份）和各家国内云的 S3 兼容对象存储，自带校验 |
 
@@ -86,7 +89,7 @@ flowchart LR
 | 组 | 成员 | 常驻权限 | 可申请（PIM eligible）|
 |---|---|---|---|
 | `<prefix>-it-ops-*` | IT 运维 | 方案资源组的 **Owner**（可改为 PIM 激活，推荐生产使用）；所有数据申请的**审批人** | — |
-| `<prefix>-data-team-*` | 研发 / 算法 / 数据 | 只能读台账表 `XLedger_CL`（表级 RBAC），用于跟踪自己的工单 | `source-reader`、`landing-writer`；启用托管搬运时还有 `transfer-operator` |
+| `<prefix>-data-team-*` | 研发 / 算法 / 数据 | 只能读台账表 `XLedger_CL`（表级 RBAC），用于跟踪自己的工单 | `source-reader`；启用托管搬运时还有 `transfer-operator` |
 | `<prefix>-auditors-*` | 合规 / 审计 | Log Analytics Reader、WORM 归档只读 | — |
 
 > **Owner ≠ 能读数据。** Azure RBAC 把控制平面（Owner）和数据平面（Storage Blob Data *）分开。IT 运维能管理资源，但读写数据时同样要走 PIM，这样“管理员偷看数据”也会在台账中留下记录（见 6.1 的越权检测）。
@@ -96,8 +99,7 @@ flowchart LR
 | CLI 名称 | Azure 角色 | 作用域 | 用途 |
 |---|---|---|---|
 | `source-reader` | Storage Blob Data Reader | 源存储账号 | **rclone 拉取**（场景 A、B），以及抽样查看 |
-| `landing-writer` | Storage Blob Data Contributor | 落地区存储账号 | 托管搬运的落地区（PoC 中模拟境内）整理数据 |
-| `transfer-operator`（可选）| Azure Service Bus Data Sender | Service Bus 命名空间 | 向托管搬运组件提交任务 |
+| `transfer-operator`（可选）| Azure Service Bus Data Sender | Service Bus 命名空间 | 向托管搬运组件**提交任务**；本身不能读取任何数据 |
 
 PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）：
 
@@ -119,7 +121,7 @@ PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）�
 |---|---|
 | `id-*-collector` | 方案资源组：Reader（读取 PIM 请求）；Log Analytics Reader；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
 | `id-*-vendor`（仅 PoC）| 源：Blob Data Contributor，模拟供应商交付；交付本身记入台账（`dataset.delivered`）|
-| `id-*-transfer`（可选组件）| 源：Blob Data Reader；落地区：Blob Data Contributor；Service Bus 队列：Data Owner；治理资源组：Reader（校验 PIM）；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
+| `id-*-transfer`（可选组件）| 源：Blob Data Reader（经 Private Endpoint 读取）；Key Vault：Secrets User（读取目的地凭证）；Service Bus 队列：Data Owner（仅该队列，KEDA 读取队列长度需要）；治理资源组：Reader（校验提交人的 PIM 激活）；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
 
 ## 5. 数据通道
 
@@ -155,9 +157,51 @@ sequenceDiagram
 
 ### 5.2 可选：托管搬运组件（`enable_managed_transfer = true`）
 
-适合由**服务身份无人值守**地执行、并由平台强制做校验和来源证明的场景。研发激活 `transfer-operator` 后，用 `xl transfer` 往 Service Bus 投递分片任务；KEDA 触发 Container Apps Job，worker **再次校验提交人是否持有同一工单号的有效激活**，然后执行 AzCopy 服务端拷贝、逐对象 MD5 校验，并写入 manifest。
+由平台以**服务身份**无人值守地执行搬运：研发或数据人员只“提交任务”，不接触数据；worker 在 Azure 内经私网读取源数据，用 rclone 写入国内公有云的对象存储。
 
-> 为什么不直接把 Job 的启动权限给研发：Container Apps Job 的 `start` 接口允许调用方**覆盖镜像和命令**，等于让研发借用 worker 的托管身份运行任意代码。改为投递队列消息后，研发只能“提交任务”，不能改变实际执行的代码。
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 数据人员（已激活 transfer-operator）
+  participant Q as Service Bus 队列
+  participant W as transfer worker（Container Apps Job，托管身份）
+  participant KV as Key Vault
+  participant S as 源 Blob（Private Endpoint）
+  participant D as 国内对象存储（S3 兼容）
+  participant L as 台账 + 告警
+  U->>Q: xl transfer -t T-1 -p batch-001/ -p batch-002/（每个前缀一个分片）
+  Q->>W: KEDA 按队列长度触发，多个分片并行执行
+  W->>W: 提交人此刻是否持有工单号 = T-1 的已激活 transfer-operator？否 → transfer.rejected
+  W->>KV: 读取目的地凭证（托管身份；每个分片读取一次，轮换即时生效）
+  W->>S: rclone 读取（托管身份，私网）
+  W->>D: rclone 写入（公网 + TLS，出口为 NAT Gateway 的固定 IP）
+  W->>D: rclone check（逐对象比对大小 + 哈希）；写入 _manifests/T-1/<requestId>.json
+  W->>L: transfer.started / verify.passed / transfer.completed（失败、拒绝时触发告警）
+```
+
+**什么情况下需要它**
+
+| 场景 | 为什么选托管组件 |
+|---|---|
+| **源数据不允许暴露公网** | worker 在 Azure 内经 Private Endpoint 读取，源存储保持完全私有，不需要为国内环境打开任何入口（NSP 公网模式也不需要）|
+| **人不应接触数据** | 数据团队只需要“提交任务”的权限（`transfer-operator`），自始至终没有读取数据的权限；数据只在 worker 中流过 |
+| **长时间、无人值守的批量搬运** | 300 TB 首批和后续增量可能持续数天，不依赖个人的登录会话、电脑或单次授权时长 |
+| **不想在国内维护搬运机** | 国内侧只需要一个对象存储桶；计算、并发、重试都在 Azure 上按执行计费 |
+| **凭证集中管理** | 目的地的访问密钥只存在 Key Vault 中，不分发到个人电脑或开发容器 |
+
+**关键特性**
+
+| 特性 | 实现 |
+|---|---|
+| 授权与工单绑定 | worker 在每个分片开始前，通过 ARM 校验提交人持有**同一工单号**的已激活授权，否则拒绝并告警 |
+| 分片并行、弹性伸缩 | 一个前缀 = 一条消息 = 一次 Job 执行；KEDA 按队列长度并行拉起（`transfer_parallelism`），空闲时缩到 0 |
+| 幂等、可重试 | `rclone copy --checksum` 只传差异；失败的分片自动重试，3 次后进入死信队列并告警 |
+| 端到端校验 | `rclone check --one-way` 逐对象比对大小和哈希；结果写入台账 |
+| 来源证明 | 每个分片在目的地写入 manifest（工单、提交人、路由、对象清单及 MD5），其 SHA-256 记入台账 |
+| 凭证与网络 | 目的地凭证在 Key Vault（NSP 治理、全程审计）；出口经 NAT Gateway 的固定 IP，目的地桶只需放行这一个 IP |
+| 运维告警 | Azure Monitor 定时查询台账，出现 `transfer.failed`、`transfer.rejected`、`verify.failed` 等事件时通知 IT 运维 |
+
+> 为什么提交任务走队列，而不是把 Job 的启动权限给数据人员：Container Apps Job 的 `start` 接口允许调用方**覆盖镜像和命令**，等于让人借用 worker 的托管身份运行任意代码。改为投递队列消息后，人只能“提交任务”，不能改变实际执行的代码。
 
 ### 5.3 网络入口：两种模式
 
@@ -184,7 +228,7 @@ sequenceDiagram
 | `operate` | `data.accessed` | collector：授权窗口关闭后，从存储服务端日志汇总此人在窗口内的全部操作（读/写/删次数、对象数、字节数、对象样本、**来源 IP**）|
 | `operate` | `data.accessed.outside-window`（**高危异常**）| 有人在没有激活授权的情况下**成功**访问了数据，说明存在 PIM 之外的常驻数据角色 |
 | `operate` | `data.access.denied`（低危）| 有人在没有激活授权的情况下尝试访问数据，被 RBAC 拒绝 |
-| `operate` | `transfer.*` / `verify.*` | 可选托管搬运组件的 worker |
+| `operate` | `transfer.*` / `verify.*` | 可选托管搬运组件的 worker（开始、完成、拒绝、失败、校验结果）|
 | `revoke` | `access.revoked`（主动交还 / 管理员强制收回）/ `access.expired`（到期）/ `access.canceled`（撤回申请）| PIM |
 
 所有事件共享同一个 schema（`XLedger_CL`）：`TimeGenerated, EventId, EventType, Stage, TicketId, ActorId, ActorName, ActorType, Role, Scope, Route, Status, Message, Details, Origin`。
@@ -218,6 +262,7 @@ flowchart LR
 - 源存储：`shared_access_key_enabled = false`（只认 Entra）、禁止匿名访问、TLS 1.2；网络入口为 Private Endpoint（推荐）或 NSP 白名单，**从不直接开放公网**
 - 治理平面的存储账号：只能通过 Private Endpoint 访问；collector 运行在接入 VNet 的 Container Apps 中
 - Service Bus（可选组件）：`local_auth_enabled = false`（只允许 Entra）
+- Key Vault（可选组件）：RBAC 授权，`publicNetworkAccess = SecuredByPerimeter`，只放行本订阅的托管身份和运维管理 IP；目的地凭证由 IT 运维通过 ARM 管理面写入
 - 容器通过 ARM 控制平面创建，部署者不需要常驻的数据平面权限
 - 镜像使用非 root 用户；ACR 关闭 admin 账号，通过托管身份拉取镜像
 - 生产推荐：Conditional Access 认证上下文（激活时强制 MFA / 合规设备）、锁定 WORM 策略、Defender for Storage

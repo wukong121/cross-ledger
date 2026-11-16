@@ -12,6 +12,7 @@ Identities are redacted with the git-ignored .redact.json map (see capture.py).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -101,18 +102,87 @@ table(
 )
 
 
-# --- transfer plane ------------------------------------------------------------------------------
-if JOB:  # optional managed-transfer component
+# --- optional managed transfer component ---------------------------------------------------------
+MT = os.environ.get("MT_TICKET", "DT-POC-0007")  # a clean managed-transfer ticket
+MT_REJECT = os.environ.get("MT_REJECT_TICKET", "DT-POC-9998")  # a submission with a mismatching ticket
+if JOB:
+    ev = kql(
+        f"XLedger_CL | where Origin == 'transfer-worker' and TicketId in ('{MT}','{MT_REJECT}') "
+        "| project at=format_datetime(TimeGenerated,'HH:mm:ss'), ticket=TicketId, event=EventType, message=Message "
+        "| order by at asc"
+    )
     table(
-        "09-worker-logs",
-        "Transfer worker — ledger events from job logs",
-        "KQL: ContainerAppConsoleLogs_CL (transfer job)",
-        kql(
-            f"ContainerAppConsoleLogs_CL | where ContainerGroupName_s startswith '{JOB}' and Log_s has 'crossledger.events' and Log_s contains ' ledger ' "
-            "| extend event = extract('ledger (.*)', 1, Log_s) | project at=format_datetime(TimeGenerated,'yyyy-MM-dd HH:mm:ss'), event "
-            "| order by at asc"
+        "33-worker-events",
+        "Managed transfer — worker events in the ledger",
+        f"KQL: XLedger_CL (transfer-worker, {MT} / {MT_REJECT})",
+        ev,
+        width=210,
+    )
+    first = kql(
+        f"XLedger_CL | where Origin == 'transfer-worker' and TicketId in ('{MT}','{MT_REJECT}') | summarize t=min(TimeGenerated)"
+    )
+    since = (first[0]["t"] or "")[:16] if first else ""
+    table(
+        "32-executions",
+        "Managed transfer — one Container Apps Job execution per shard (KEDA)",
+        f"az containerapp job execution list -n {JOB}",
+        az_json(
+            "containerapp",
+            "job",
+            "execution",
+            "list",
+            "-n",
+            JOB,
+            "-g",
+            RG,
+            "--query",
+            f"reverse([?properties.startTime >= '{since[:15]}0'].{{execution:name, status:properties.status, "
+            "started:properties.startTime, ended:properties.endTime})",
         ),
-        width=200,
+        width=150,
+    )
+    xl("35-timeline-managed", "Managed transfer — ticket timeline", "timeline", MT, width=210)
+    alerts = az_json(
+        "rest",
+        "--url",
+        f"https://management.azure.com/subscriptions/{SUB}/providers/Microsoft.AlertsManagement/alerts"
+        f"?api-version=2019-05-05-preview&targetResourceGroup={RG}&timeRange=1d",
+    )
+    rej = kql(
+        f"XLedger_CL | where TicketId == '{MT_REJECT}' and EventType == 'transfer.rejected' | summarize t=min(TimeGenerated)"
+    )
+    rej_t = (rej[0]["t"] or "")[:19] if rej else ""
+    rows = [
+        {
+            "alert": a["properties"]["essentials"]["alertRule"].rsplit("/", 1)[-1],
+            "severity": a["properties"]["essentials"]["severity"],
+            "condition": a["properties"]["essentials"]["monitorCondition"],
+            "fired": a["properties"]["essentials"]["startDateTime"][:19],
+        }
+        for a in alerts["value"]
+        if "ledger" in a["name"] and a["properties"]["essentials"]["startDateTime"][:19] >= rej_t
+    ]
+    table(
+        "36-alert",
+        f"Ops alert — fired after the rejected submission ({rej_t[11:]} UTC)",
+        "Azure Monitor: fired alerts",
+        sorted(rows, key=lambda r: r["fired"])[:3],
+        width=150,
+    )
+    xfer_oid = az_json("identity", "show", "-n", JOB.replace("job-", "id-"), "-g", RG, "--query", "principalId")
+    kv = kql(
+        f"AzureDiagnostics | where ResourceProvider == 'MICROSOFT.KEYVAULT' and OperationName == 'SecretGet' "
+        f"| where TimeGenerated >= datetime({since}:00Z) - 5m "
+        f"| extend caller = iif(tostring(pack_all()) has '{xfer_oid}', 'transfer-worker (managed identity)', 'other') "
+        "| project at=format_datetime(TimeGenerated,'HH:mm:ss'), operation=OperationName, secret=tostring(split(id_s,'/')[4]), "
+        "caller, result=ResultSignature | order by at asc"
+    )
+    table(
+        "37-kv-audit",
+        "Destination credentials: every read is audited (Key Vault)",
+        "KQL: AzureDiagnostics (Key Vault, SecretGet)",
+        kv,
+        width=150,
     )
 
 # --- ledger --------------------------------------------------------------------------------------

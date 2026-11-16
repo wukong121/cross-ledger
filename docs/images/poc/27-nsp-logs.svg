@@ -19,65 +19,65 @@
         font-weight: 700;
     }
 
-    .terminal-1116852533-matrix {
+    .terminal-312791334-matrix {
         font-family: Fira Code, monospace;
         font-size: 20px;
         line-height: 24.4px;
         font-variant-east-asian: full-width;
     }
 
-    .terminal-1116852533-title {
+    .terminal-312791334-title {
         font-size: 18px;
         font-weight: bold;
         font-family: arial;
     }
 
-    .terminal-1116852533-r1 { fill: #98e024;font-weight: bold }
-.terminal-1116852533-r2 { fill: #d9d9d9 }
-.terminal-1116852533-r3 { fill: #58d1eb;font-weight: bold }
+    .terminal-312791334-r1 { fill: #98e024;font-weight: bold }
+.terminal-312791334-r2 { fill: #d9d9d9 }
+.terminal-312791334-r3 { fill: #58d1eb;font-weight: bold }
     </style>
 
     <defs>
-    <clipPath id="terminal-1116852533-clip-terminal">
+    <clipPath id="terminal-312791334-clip-terminal">
       <rect x="0" y="0" width="2073.0" height="169.79999999999998" />
     </clipPath>
-    <clipPath id="terminal-1116852533-line-0">
+    <clipPath id="terminal-312791334-line-0">
     <rect x="0" y="1.5" width="2074" height="24.65"/>
             </clipPath>
-<clipPath id="terminal-1116852533-line-1">
+<clipPath id="terminal-312791334-line-1">
     <rect x="0" y="25.9" width="2074" height="24.65"/>
             </clipPath>
-<clipPath id="terminal-1116852533-line-2">
+<clipPath id="terminal-312791334-line-2">
     <rect x="0" y="50.3" width="2074" height="24.65"/>
             </clipPath>
-<clipPath id="terminal-1116852533-line-3">
+<clipPath id="terminal-312791334-line-3">
     <rect x="0" y="74.7" width="2074" height="24.65"/>
             </clipPath>
-<clipPath id="terminal-1116852533-line-4">
+<clipPath id="terminal-312791334-line-4">
     <rect x="0" y="99.1" width="2074" height="24.65"/>
             </clipPath>
-<clipPath id="terminal-1116852533-line-5">
+<clipPath id="terminal-312791334-line-5">
     <rect x="0" y="123.5" width="2074" height="24.65"/>
             </clipPath>
     </defs>
 
-    <rect fill="#0c0c0c" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="2090" height="218.8" rx="8"/><text class="terminal-1116852533-title" fill="#d9d9d9" text-anchor="middle" x="1045" y="27">Network&#160;Security&#160;Perimeter:&#160;public&#160;inbound&#160;to&#160;the&#160;source&#160;account</text>
+    <rect fill="#0c0c0c" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="2090" height="218.8" rx="8"/><text class="terminal-312791334-title" fill="#d9d9d9" text-anchor="middle" x="1045" y="27">Network&#160;Security&#160;Perimeter:&#160;public&#160;inbound&#160;to&#160;the&#160;source&#160;account</text>
             <g transform="translate(26,22)">
             <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
             <circle cx="22" cy="0" r="7" fill="#febc2e"/>
             <circle cx="44" cy="0" r="7" fill="#28c840"/>
             </g>
         
-    <g transform="translate(9, 41)" clip-path="url(#terminal-1116852533-clip-terminal)">
+    <g transform="translate(9, 41)" clip-path="url(#terminal-312791334-clip-terminal)">
     
-    <g class="terminal-1116852533-matrix">
-    <text class="terminal-1116852533-r1" x="0" y="20" textLength="24.4" clip-path="url(#terminal-1116852533-line-0)">$&#160;</text><text class="terminal-1116852533-r1" x="24.4" y="20" textLength="622.2" clip-path="url(#terminal-1116852533-line-0)">KQL:&#160;NSPAccessLogs&#160;(source&#160;account,&#160;public&#160;inbound)</text><text class="terminal-1116852533-r2" x="2074" y="20" textLength="12.2" clip-path="url(#terminal-1116852533-line-0)">
-</text><text class="terminal-1116852533-r2" x="2074" y="44.4" textLength="12.2" clip-path="url(#terminal-1116852533-line-1)">
-</text><text class="terminal-1116852533-r3" x="24.4" y="68.8" textLength="451.4" clip-path="url(#terminal-1116852533-line-2)">Category&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-1116852533-r3" x="512.4" y="68.8" textLength="61" clip-path="url(#terminal-1116852533-line-2)">First</text><text class="terminal-1116852533-r3" x="610" y="68.8" textLength="61" clip-path="url(#terminal-1116852533-line-2)">Last&#160;</text><text class="terminal-1116852533-r3" x="707.6" y="68.8" textLength="97.6" clip-path="url(#terminal-1116852533-line-2)">Requests</text><text class="terminal-1116852533-r3" x="841.8" y="68.8" textLength="146.4" clip-path="url(#terminal-1116852533-line-2)">ResultAction</text><text class="terminal-1116852533-r3" x="1024.8" y="68.8" textLength="183" clip-path="url(#terminal-1116852533-line-2)">SourceIpAddress</text><text class="terminal-1116852533-r2" x="2074" y="68.8" textLength="12.2" clip-path="url(#terminal-1116852533-line-2)">
-</text><text class="terminal-1116852533-r2" x="0" y="93.2" textLength="1232.2" clip-path="url(#terminal-1116852533-line-3)">&#160;━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━&#160;</text><text class="terminal-1116852533-r2" x="2074" y="93.2" textLength="12.2" clip-path="url(#terminal-1116852533-line-3)">
-</text><text class="terminal-1116852533-r2" x="24.4" y="117.6" textLength="451.4" clip-path="url(#terminal-1116852533-line-4)">NspPublicInboundPerimeterRulesAllowed</text><text class="terminal-1116852533-r2" x="512.4" y="117.6" textLength="61" clip-path="url(#terminal-1116852533-line-4)">03:51</text><text class="terminal-1116852533-r2" x="610" y="117.6" textLength="61" clip-path="url(#terminal-1116852533-line-4)">05:04</text><text class="terminal-1116852533-r2" x="707.6" y="117.6" textLength="97.6" clip-path="url(#terminal-1116852533-line-4)">185&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="841.8" y="117.6" textLength="146.4" clip-path="url(#terminal-1116852533-line-4)">Allowed&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="1024.8" y="117.6" textLength="183" clip-path="url(#terminal-1116852533-line-4)">203.0.113.10&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="2074" y="117.6" textLength="12.2" clip-path="url(#terminal-1116852533-line-4)">
-</text><text class="terminal-1116852533-r2" x="24.4" y="142" textLength="451.4" clip-path="url(#terminal-1116852533-line-5)">NspPublicInboundPerimeterRulesDenied&#160;</text><text class="terminal-1116852533-r2" x="512.4" y="142" textLength="61" clip-path="url(#terminal-1116852533-line-5)">03:10</text><text class="terminal-1116852533-r2" x="610" y="142" textLength="61" clip-path="url(#terminal-1116852533-line-5)">03:52</text><text class="terminal-1116852533-r2" x="707.6" y="142" textLength="97.6" clip-path="url(#terminal-1116852533-line-5)">5&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="841.8" y="142" textLength="146.4" clip-path="url(#terminal-1116852533-line-5)">Denied&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="1024.8" y="142" textLength="183" clip-path="url(#terminal-1116852533-line-5)">198.51.100.2&#160;&#160;&#160;</text><text class="terminal-1116852533-r2" x="2074" y="142" textLength="12.2" clip-path="url(#terminal-1116852533-line-5)">
-</text><text class="terminal-1116852533-r2" x="2074" y="166.4" textLength="12.2" clip-path="url(#terminal-1116852533-line-6)">
+    <g class="terminal-312791334-matrix">
+    <text class="terminal-312791334-r1" x="0" y="20" textLength="24.4" clip-path="url(#terminal-312791334-line-0)">$&#160;</text><text class="terminal-312791334-r1" x="24.4" y="20" textLength="622.2" clip-path="url(#terminal-312791334-line-0)">KQL:&#160;NSPAccessLogs&#160;(source&#160;account,&#160;public&#160;inbound)</text><text class="terminal-312791334-r2" x="2074" y="20" textLength="12.2" clip-path="url(#terminal-312791334-line-0)">
+</text><text class="terminal-312791334-r2" x="2074" y="44.4" textLength="12.2" clip-path="url(#terminal-312791334-line-1)">
+</text><text class="terminal-312791334-r3" x="24.4" y="68.8" textLength="451.4" clip-path="url(#terminal-312791334-line-2)">Category&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-312791334-r3" x="512.4" y="68.8" textLength="61" clip-path="url(#terminal-312791334-line-2)">First</text><text class="terminal-312791334-r3" x="610" y="68.8" textLength="61" clip-path="url(#terminal-312791334-line-2)">Last&#160;</text><text class="terminal-312791334-r3" x="707.6" y="68.8" textLength="97.6" clip-path="url(#terminal-312791334-line-2)">Requests</text><text class="terminal-312791334-r3" x="841.8" y="68.8" textLength="146.4" clip-path="url(#terminal-312791334-line-2)">ResultAction</text><text class="terminal-312791334-r3" x="1024.8" y="68.8" textLength="183" clip-path="url(#terminal-312791334-line-2)">SourceIpAddress</text><text class="terminal-312791334-r2" x="2074" y="68.8" textLength="12.2" clip-path="url(#terminal-312791334-line-2)">
+</text><text class="terminal-312791334-r2" x="0" y="93.2" textLength="1232.2" clip-path="url(#terminal-312791334-line-3)">&#160;━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━&#160;</text><text class="terminal-312791334-r2" x="2074" y="93.2" textLength="12.2" clip-path="url(#terminal-312791334-line-3)">
+</text><text class="terminal-312791334-r2" x="24.4" y="117.6" textLength="451.4" clip-path="url(#terminal-312791334-line-4)">NspPublicInboundPerimeterRulesAllowed</text><text class="terminal-312791334-r2" x="512.4" y="117.6" textLength="61" clip-path="url(#terminal-312791334-line-4)">03:51</text><text class="terminal-312791334-r2" x="610" y="117.6" textLength="61" clip-path="url(#terminal-312791334-line-4)">05:04</text><text class="terminal-312791334-r2" x="707.6" y="117.6" textLength="97.6" clip-path="url(#terminal-312791334-line-4)">185&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="841.8" y="117.6" textLength="146.4" clip-path="url(#terminal-312791334-line-4)">Allowed&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="1024.8" y="117.6" textLength="183" clip-path="url(#terminal-312791334-line-4)">203.0.113.10&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="2074" y="117.6" textLength="12.2" clip-path="url(#terminal-312791334-line-4)">
+</text><text class="terminal-312791334-r2" x="24.4" y="142" textLength="451.4" clip-path="url(#terminal-312791334-line-5)">NspPublicInboundPerimeterRulesDenied&#160;</text><text class="terminal-312791334-r2" x="512.4" y="142" textLength="61" clip-path="url(#terminal-312791334-line-5)">03:10</text><text class="terminal-312791334-r2" x="610" y="142" textLength="61" clip-path="url(#terminal-312791334-line-5)">03:52</text><text class="terminal-312791334-r2" x="707.6" y="142" textLength="97.6" clip-path="url(#terminal-312791334-line-5)">5&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="841.8" y="142" textLength="146.4" clip-path="url(#terminal-312791334-line-5)">Denied&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="1024.8" y="142" textLength="183" clip-path="url(#terminal-312791334-line-5)">198.51.100.2&#160;&#160;&#160;</text><text class="terminal-312791334-r2" x="2074" y="142" textLength="12.2" clip-path="url(#terminal-312791334-line-5)">
+</text><text class="terminal-312791334-r2" x="2074" y="166.4" textLength="12.2" clip-path="url(#terminal-312791334-line-6)">
 </text>
     </g>
     </g>

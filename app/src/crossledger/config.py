@@ -38,9 +38,7 @@ class Settings:
     gov_rg: str = ""
     workspace_id: str = ""
     source_account_url: str = ""
-    landing_account_url: str = ""
     source_container: str = "datasets"
-    landing_container: str = "datasets"
     bus_namespace: str = ""
     bus_queue: str = "transfer-requests"
     state_container_url: str = ""
@@ -51,10 +49,10 @@ class Settings:
     ledger_endpoint: str = ""
     scopes: list[str] = field(default_factory=list)
     source_scope: str = ""
-    landing_scope: str = ""
     ctl_scope: str = ""
     operator_role_id: str = ""
     worker_identity: str = ""
+    dest_secret_uri: str = ""
     service_identities: list[str] = field(default_factory=list)
     known_services: dict[str, str] = field(default_factory=dict)  # object id -> label
     roles: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -70,7 +68,7 @@ class Settings:
 
     @property
     def data_scopes(self) -> list[str]:
-        return [s for s in (self.source_scope, self.ctl_scope, self.landing_scope) if s]
+        return [s for s in (self.source_scope, self.ctl_scope) if s]
 
 
 @cache
@@ -82,7 +80,6 @@ def settings() -> Settings:
         roles = {
             "source-reader": {"scope": _get("XL_SOURCE_SCOPE"), "role": "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1"},
             "transfer-operator": {"scope": _get("XL_CTL_SCOPE"), "role": _get("XL_OPERATOR_ROLE_ID")},
-            "landing-writer": {"scope": _get("XL_LANDING_SCOPE"), "role": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"},
         }
     ctl_scope = _get("XL_CTL_SCOPE") or roles.get("transfer-operator", {}).get("scope", "")
     return Settings(
@@ -90,9 +87,7 @@ def settings() -> Settings:
         gov_rg=_get("XL_GOV_RG"),
         workspace_id=_get("XL_WORKSPACE_ID"),
         source_account_url=_get("XL_SOURCE_ACCOUNT_URL").rstrip("/"),
-        landing_account_url=_get("XL_LANDING_ACCOUNT_URL").rstrip("/"),
         source_container=_get("XL_SOURCE_CONTAINER", "datasets"),
-        landing_container=_get("XL_LANDING_CONTAINER", "datasets"),
         bus_namespace=_get("XL_BUS_NAMESPACE"),
         bus_queue=_get("XL_BUS_QUEUE", "transfer-requests"),
         state_container_url=_get("XL_STATE_CONTAINER_URL"),
@@ -103,10 +98,10 @@ def settings() -> Settings:
         ledger_endpoint=_get("XL_LEDGER_ENDPOINT"),
         scopes=[s for s in _get("XL_SCOPES").split(",") if s],
         source_scope=_get("XL_SOURCE_SCOPE") or roles.get("source-reader", {}).get("scope", ""),
-        landing_scope=_get("XL_LANDING_SCOPE") or roles.get("landing-writer", {}).get("scope", ""),
         ctl_scope=ctl_scope,
         operator_role_id=_get("XL_OPERATOR_ROLE_ID") or roles.get("transfer-operator", {}).get("role", ""),
         worker_identity=_get("XL_WORKER_IDENTITY"),
+        dest_secret_uri=_get("XL_DEST_SECRET_URI"),
         service_identities=[x for x in _get("XL_SERVICE_IDENTITIES").split(",") if x],
         known_services={k.lower(): v for k, v in json.loads(_get("XL_KNOWN_SERVICES") or "{}").items()},
         roles=roles,

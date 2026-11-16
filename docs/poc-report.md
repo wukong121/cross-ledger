@@ -3,10 +3,11 @@
 > **结论**：研发和数据人员在“国内环境”中，用开源 **rclone**、以**本人 Entra 身份**、经**公网**从海外 Azure 拉取训练数据，全链路跑通：
 > **申请 → 审批 → 拉取（本地 / S3 兼容对象存储）→ 校验 → 收回 → 台账**。
 > 数据权限平时不存在，用时申请、限时生效、收回即失效；网络层只放行白名单 IP；每个工单的完整过程都写入台账，并能与 Azure Confidential Ledger 逐条比对，证明没有被篡改。台账还会对存储日志做交叉核验，**日志缺失或不全时会自动标记**。
+> 可选的**托管搬运组件**同样验证通过：数据人员只提交任务、不接触数据，Azure 上的 worker 以服务身份用 rclone 把数据经私网读出、写入国内对象存储，逐对象校验并写入来源证明；源存储无需对外开放任何入口。
 
 - 验证日期：2026-11-15 ～ 2026-11-16
 - 截图均为真实命令输出（由 [scripts/capture_poc.py](../scripts/capture_poc.py) 和 [scripts/sim_run.py](../scripts/sim_run.py) 生成）。**人员身份已脱敏**：申请人显示为 `Alice Chen / alice@contoso.example`，审批人显示为 `bob@contoso.example`；公网 IP 已替换为文档保留地址（`203.0.113.10` = 模拟国内环境，`198.51.100.2` = 白名单外的机器），区域名称均已隐去
-- 主线工单：**`DT-POC-0005`**
+- 主线工单：**`DT-POC-0005`**（rclone 自助拉取）、**`DT-POC-0007`**（托管搬运）
 
 ---
 
@@ -19,7 +20,7 @@
 5. [可选组件：托管搬运](#5-可选组件托管搬运)
 6. [已知限制与未覆盖项](#6-已知限制与未覆盖项)
 7. [下一步建议](#7-下一步建议)
-8. [附：建议补充的门户截图](#8-附建议补充的门户截图)
+8. [附：门户截图](#8-附门户截图)
 
 ---
 
@@ -43,11 +44,17 @@ flowchart LR
     NSP{{"Network Security Perimeter<br/>只放行模拟环境的公网 IP"}}
     SRC[("源数据 Blob<br/>Entra-only · 禁用密钥")]
     GOV["PIM · collector · Log Analytics<br/>Confidential Ledger · WORM"]
+    W["托管搬运 worker<br/>Container Apps Job（rclone，托管身份）"]
+    KV[("Key Vault<br/>目的地凭证")]
+    NAT["NAT Gateway<br/>固定出口 IP"]
   end
   DEV -- "公网 + TLS + 本人令牌" --> NSP --> SRC
   DEV --> S3
   SRC -. "访问日志" .-> GOV
   NSP -. "边界日志" .-> GOV
+  SRC -- "私网读取" --> W
+  KV -. "凭证" .-> W
+  W --> NAT -- "公网 + TLS（只放行该 IP）" --> S3
 ```
 
 | 项 | 配置 |
@@ -56,6 +63,7 @@ flowchart LR
 | 源数据 | 3 个批次（`batch-001` 至 `batch-003`），每批 20 个分片文件 + 1 个元数据文件，由 vendor Job 模拟供应商交付 |
 | 网络入口 | `source_public_access = "perimeter"`：源存储 `SecuredByPerimeter`，NSP 只放行模拟环境的公网 IP |
 | 模拟国内环境 | 另一区域的一台小虚拟机，**不与方案网络有任何连接**，只通过自己的公网 IP 访问源；用 `rclone serve s3` 在本机模拟国内云的 S3 兼容对象存储 |
+| 托管搬运组件 | `enable_managed_transfer = true`；目的地为模拟环境上的 TLS S3 端点（私有 CA），其防火墙只放行 worker 的固定出口 IP；目的地凭证存于 Key Vault |
 | 参与人员 | **Alice**：data-team 成员（申请人）；**Bob**：it-ops 成员（审批人）|
 | 部署方式 | `./scripts/deploy.sh`（Terraform + `az acr build`）+ `./scripts/sim-host.sh`（模拟环境）|
 
@@ -77,6 +85,11 @@ flowchart LR
 | 12 | 台账与 Confidential Ledger 逐条比对 | ③ | ✅ 6/6 一致 |
 | 13 | 越权、PIM 之外的 RBAC 变更会被记录 | ③ | ✅ |
 | 14 | 审计归档为 WORM（只能追加）| ③ | ✅ |
+| 15 | **托管搬运**：数据人员只持有“提交任务”权限，worker 以服务身份把两个批次搬到国内对象存储 | ①② | ✅ 2 个分片并行，各 21 个对象，校验 0 差异 |
+| 16 | 托管搬运：工单号不符的提交被拒绝 | ② | ✅ `transfer.rejected` |
+| 17 | 托管搬运：目的地凭证只在 Key Vault 中，每次读取都有审计 | ② | ✅ worker 托管身份 `SecretGet` 记录 |
+| 18 | 托管搬运：出口为固定 IP，目的地只放行该 IP | ② | ✅ 其他来源无法连接目的地 |
+| 19 | 失败 / 拒绝自动告警 | 运维 | ✅ 拒绝发生后约 4 分钟触发 |
 
 ---
 
@@ -216,9 +229,66 @@ collector 自动检测并记入台账，无需人工巡检：
 
 ## 5. 可选组件：托管搬运
 
-除了 rclone 自助拉取，方案还提供一个可选组件（`enable_managed_transfer = true`）：由平台以服务身份执行搬运（Service Bus 提交 → Container Apps Job → AzCopy 服务端拷贝 → 逐对象 MD5 校验 → 来源证明 manifest），适合需要无人值守、由平台强制校验的场景。PoC 中同样验证通过，包括“工单号不符的提交被拒绝”：
+### 5.1 什么情况下需要它
 
-![worker logs](images/poc/09-worker-logs.png)
+rclone 自助拉取适合研发按需取数。以下情况建议使用托管搬运组件（`enable_managed_transfer = true`）：
+
+| 情况 | 托管组件的做法 |
+|---|---|
+| 源数据**不允许对外开放任何入口** | worker 在 Azure 内经 Private Endpoint 读取，源存储保持完全私有 |
+| **人不应接触数据**（只需要“把数据搬过去”）| 数据人员只持有 `transfer-operator`，只能提交任务，读不到数据 |
+| **首批 300 TB、周期性增量**等长时间无人值守的搬运 | 不依赖个人的登录会话和电脑；分片并行、失败自动重试 |
+| 不想在国内维护搬运机 | 国内侧只需要一个对象存储桶 |
+| 目的地密钥不想分发给个人 | 密钥只存在 Key Vault 中，worker 运行时读取，读取全程审计 |
+
+### 5.2 验证过程与结果（工单 `DT-POC-0007`）
+
+**① 申请**：Alice 申请 `transfer-operator`，即“提交搬运任务”的权限，本身不能读取任何数据。Bob 审批（门户截图见第 8 节）。
+
+![request operator](images/poc/30-request-operator.png)
+
+**② 提交**：每个前缀一个分片。
+
+![submit](images/poc/31-transfer-submit.png)
+
+**③ 并行执行**：KEDA 根据队列长度为每个分片拉起一次 Container Apps Job 执行，两个分片同时开始；第三次执行是下文的拒绝演示。
+
+![executions](images/poc/32-executions.png)
+
+**④ worker 在台账中的事件**：两个分片各自完成“开始 → 校验通过 → 完成”。`DT-POC-9998` 是用**不匹配的工单号**提交的任务，worker 核对 PIM 后拒绝执行。
+
+![worker events](images/poc/33-worker-events.png)
+
+**⑤ 目的地**：两个批次各 21 个对象，字节数与源端一致；每个分片在目的地写入一份 manifest（工单、提交人、路由、校验结果、逐对象 MD5），其 SHA-256 记入台账。
+
+![destination](images/poc/34-destination.png)
+
+**⑥ 工单全过程**：申请 → 审批 → 激活 → 两个分片的开始、校验、完成 → 交还。
+
+![managed timeline](images/poc/35-timeline-managed.png)
+
+**⑦ 凭证与网络**：worker 每处理一个分片读取一次目的地凭证，每次读取都记录在 Key Vault 审计日志中。worker 的出口是 NAT Gateway 的固定公网 IP；目的地防火墙只放行这一个 IP，其他来源（包括部署方的管理机）无法连接目的地。
+
+![kv audit](images/poc/37-kv-audit.png)
+
+**⑧ 告警**：拒绝事件写入台账后约 4 分钟，Azure Monitor 告警触发并通知 IT 运维。
+
+![alert](images/poc/36-alert.png)
+
+### 5.3 对运维体验的改善
+
+| 运维事项 | 自助 rclone | 托管组件 |
+|---|---|---|
+| 国内搬运机 | 需要准备、维护，并管理出口 IP | **不需要**；Azure 上按执行计费，空闲时缩到 0 |
+| 目的地凭证 | 分散在各搬运机 / 开发机上 | **集中在 Key Vault**，轮换后下一个分片自动生效，无需重新部署 |
+| 进度与结果 | 靠操作者自己查看、归档 `rclone check` | 每个分片的开始、校验、完成**自动写入台账**；manifest 自动写入目的地 |
+| 失败处理 | 人工重跑 | 自动重试，3 次后进入死信队列；重新提交同一前缀只补传差异 |
+| 异常发现 | 依赖人工巡检 | 失败、拒绝、校验失败、证据缺失、越权访问**自动告警** |
+| 权限面 | 搬运人员需要读权限 | 搬运人员**只需要提交权限** |
+| 目的地放行 | 每台搬运机的出口 IP | 只需放行 **1 个固定 IP** |
+| 紧急暂停 | 逐台停止 | 一条命令暂停 Job，已排队的任务保留 |
+
+授权的判定以**提交时刻**为准：worker 以 Service Bus 记录的入队时间（由服务端生成，提交人无法伪造）核对提交人当时是否持有该工单的有效授权。因此大批量任务排队期间交还权限，不会影响已经提交的分片；授权到期后再提交的任务则会被拒绝。该判定逻辑已用本次 PoC 的真实 PIM 记录验证（授权期内提交 → 放行；交还后提交 → 拒绝；工单号不符 → 拒绝）。
 
 ## 6. 已知限制与未覆盖项
 
@@ -231,12 +301,14 @@ collector 自动检测并记入台账，无需人工巡检：
 | `group` 资格模式 | 本次资格直接授予个人（`eligibility_mode = "user"`）。PIM 识别新组成员可能有较长延迟，建议在客户租户中实测 |
 | 设备码登录 | 开发机 / 开发容器中使用 `az login --use-device-code`。如果客户的条件访问策略禁用设备码登录，需要规划替代的登录方式 |
 | 撤回时间 | `access.canceled` 的时间取自申请的创建时间（Activity Log 中有准确时间，待改进）|
+| 托管搬运的吞吐 | 数据流经 worker，单个分片受 Container Apps 规格限制；大批量需要用更多分片和更高并行度，或使用 Dedicated 工作负载配置文件。PoC 未做压测 |
+| 托管搬运：排队期间交还权限 | “以提交时刻判定授权”已用真实 PIM 记录验证，未做“大量分片排队时交还权限”的端到端演示 |
 | WORM 锁定 | 为便于清理没有锁定；锁定后不可逆 |
 
 ## 7. 下一步建议
 
 1. **在客户的国内云上实测**：确认开发机 / 开发容器和搬运机的固定出口 IP，用 1–10 TB 样本测量公网吞吐，决定搬运机数量
-2. **批量搬运角色**：为数据团队配置时长更长、需要审批的批量搬运角色
+2. **批量搬运方式**：首批 300 TB 和周期性增量建议使用托管搬运组件（确认国内对象存储可以按 IP 放行，并为 worker 准备只写、限定桶的访问密钥）；如采用自助方式，为数据团队配置时长更长、需要审批的批量搬运角色
 3. **在客户租户中复测**：`group` 资格模式的成员同步耗时、条件访问（激活时强制 MFA）、设备码登录是否允许
 4. **对接客户流程**：工单号对接客户的 ITSM / OA；台账与 NSP 日志接入 Microsoft Sentinel 告警
 5. **中长期**：评估合规跨境专线 + ExpressRoute，把源存储切回完全私有（`source_public_access = "private"`）
@@ -246,7 +318,7 @@ collector 自动检测并记入台账，无需人工巡检：
 
 > 已裁掉浏览器地址栏与书签，遮盖登录账号、租户域名和 Entra 对象 ID；人员名称替换为与本报告一致的占位名，IP 替换为文档保留地址。红框为标注。
 
-**申请人视角**：数据角色只是“资格”（eligible），必须点击“激活”并经审批后才生效；资格本身也有到期时间。
+**申请人视角**：两个数据角色（`source-reader` 用于 rclone 拉取，`transfer-operator` 用于提交托管搬运任务）都只是“资格”（eligible），必须点击“激活”并经审批后才生效；资格本身也有到期时间。
 
 ![My eligible roles](images/poc/portal/p7-my-eligible-roles.png)
 
@@ -254,7 +326,7 @@ collector 自动检测并记入台账，无需人工巡检：
 
 ![PIM settings](images/poc/portal/p2-pim-settings.png)
 
-**PIM 审批页**：审批人看到的请求详情，工单号和理由是必填项。注：这是为截图专门提交的一次 `landing-writer` 申请（`DT-POC-0004`），主线工单 `DT-POC-0005` 的审批流程与此相同。
+**PIM 审批页**：审批人看到的请求详情（托管搬运的 `transfer-operator` 申请），工单号和理由是必填项，审批意见会写入台账。
 
 ![PIM approve](images/poc/portal/p1-pim-approve.png)
 

@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Transfer plane: serverless Container Apps Jobs.
 #   job-transfer  : OPTIONAL (enable_managed_transfer); event-driven (KEDA Service Bus scaler); one execution per
-#                   queued shard; runs AzCopy server-to-server + verification.
+#                   queued shard; rclone source -> destination object storage + verification.
 #   job-collector : scheduled; turns PIM / Activity / Storage logs into ledger
 #                   events.
 #   job-vendor    : PoC only; manual; simulates the supplier delivering data.
@@ -34,9 +34,7 @@ resource "azurerm_container_app_environment" "this" {
 locals {
   common_env = [
     { name = "XL_SOURCE_ACCOUNT_URL", value = azurerm_storage_account.source.primary_blob_endpoint },
-    { name = "XL_LANDING_ACCOUNT_URL", value = azurerm_storage_account.landing.primary_blob_endpoint },
     { name = "XL_SOURCE_CONTAINER", value = azurerm_storage_container.source_datasets.name },
-    { name = "XL_LANDING_CONTAINER", value = azurerm_storage_container.landing_datasets.name },
     { name = "XL_BUS_NAMESPACE", value = var.enable_managed_transfer ? "${local.bus_namespace_name}.servicebus.windows.net" : "" },
     { name = "XL_BUS_QUEUE", value = local.bus_queue_name },
     { name = "XL_STATE_CONTAINER_URL", value = "${azurerm_storage_account.ctl.primary_blob_endpoint}${azurerm_storage_container.state.name}" },
@@ -49,7 +47,6 @@ locals {
     { name = "XL_SUBSCRIPTION_ID", value = var.subscription_id },
     { name = "XL_SCOPES", value = join(",", values(local.rgs)) },
     { name = "XL_SOURCE_SCOPE", value = azurerm_storage_account.source.id },
-    { name = "XL_LANDING_SCOPE", value = azurerm_storage_account.landing.id },
     { name = "XL_CTL_SCOPE", value = local.bus_namespace_id },
     { name = "XL_OPERATOR_ROLE_ID", value = local.role_ids.bus_sender },
     { name = "XL_KNOWN_SERVICES", value = jsonencode(var.known_service_principals) },
@@ -117,10 +114,8 @@ resource "azapi_resource" "job_transfer" {
           env = concat(local.common_env, [
             { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.transfer.client_id },
             { name = "XL_WORKER_IDENTITY", value = azurerm_user_assigned_identity.transfer.principal_id },
-            { name = "AZCOPY_AUTO_LOGIN_TYPE", value = "MSI" },
-            { name = "AZCOPY_MSI_CLIENT_ID", value = azurerm_user_assigned_identity.transfer.client_id },
-            { name = "AZCOPY_LOG_LOCATION", value = "/tmp/azcopy" },
-            { name = "AZCOPY_JOB_PLAN_LOCATION", value = "/tmp/azcopy/plans" },
+            { name = "XL_DEST_SECRET_URI", value = local.dest_secret_uri },
+            { name = "XL_RCLONE_TRANSFERS", value = tostring(var.rclone_transfers) },
           ])
         }]
       }

@@ -29,9 +29,9 @@ uv run xl roles
 ```
 
 ```
-role             scope        eligible  active until
-landing-writer   xlab12land   yes       -
-source-reader    xlab12src    yes       -
+role               scope         eligible  active until
+source-reader      xlab12src     yes       -
+transfer-operator  sb-xlab12     yes       -        # 仅启用托管搬运组件时
 ```
 
 `eligible = no` 说明你还不在 data-team 组里，请联系 IT 运维。
@@ -129,15 +129,38 @@ NSPAccessLogs | where ResultAction == "Denied" | summarize count() by SourceIpAd
 
 ## 6. 可选：托管搬运组件
 
-启用 `enable_managed_transfer` 后，可以申请 `transfer-operator`，由平台以服务身份执行搬运（AzCopy 服务端拷贝 + 逐对象 MD5 校验 + manifest）：
+启用 `enable_managed_transfer` 后，数据团队可以把搬运交给平台：申请的是 `transfer-operator`（**只能提交任务，读不到数据**），实际搬运由 Azure 上的 worker 以服务身份完成（rclone → 国内对象存储，逐对象校验，写 manifest）。
+
+### 6.1 数据团队：申请并提交
 
 ```bash
-uv run xl request transfer-operator -t DT-2026-0001 -r "..." --hours 4
-uv run xl transfer -t DT-2026-0001 -p batch-001/ -p batch-002/              # 每个前缀一个分片
-uv run xl transfer -t DT-2026-0001 --manifest prefixes.txt --dest-root vendorA/2026Q4
+uv run xl request transfer-operator -t DT-2026-0002 -r "首批：batch-001～100 搬到国内对象存储" --hours 2
+#   → IT 审批
+uv run xl transfer -t DT-2026-0002 -p batch-001/ -p batch-002/                 # 每个前缀一个分片，并行执行
+uv run xl transfer -t DT-2026-0002 --manifest prefixes.txt --dest-root 2026Q4/  # 大批量：前缀清单，一行一个
+uv run xl revoke transfer-operator -t DT-2026-0002                              # 提交完即可交还，不影响已提交的任务
 ```
 
-worker 会先确认你此刻持有**同一工单号**的、已激活的 `transfer-operator`，否则拒绝并记录 `transfer.rejected`。
+- 授权只需要覆盖**提交**的时间。worker 在每个分片开始时校验提交人是否持有**同一工单号**的已激活授权，所以要在授权有效期内提交；任务开始后，交还权限不会中断搬运
+- 工单号不一致或授权已过期的提交会被拒绝（`transfer.rejected`），并触发告警
+
+### 6.2 跟踪进度
+
+```bash
+uv run xl timeline DT-2026-0002        # transfer.started → verify.passed → transfer.completed（每个分片一组）
+```
+
+在门户中：Workbook 的工单视图；或 Container Apps Job `job-*-transfer` → **Execution history**。目的地桶中的 `_manifests/<工单号>/<requestId>.json` 记录了每个分片的对象清单和校验结果。
+
+### 6.3 IT 运维：日常维护
+
+| 事项 | 做法 |
+|---|---|
+| 轮换目的地凭证 | 更新 Key Vault 机密 `transfer-destination`（见 deployment.md），下一个分片自动生效，无需重新部署 |
+| 告警 | 出现 `transfer.failed` / `transfer.rejected` / `verify.failed` / `audit.gap` / 越权访问时，Azure Monitor 邮件通知 `alert_emails` |
+| 失败重试 | 失败的分片自动重试；3 次后进入 Service Bus 死信队列。修复原因后重新 `xl transfer` 同一前缀即可，已传完的对象会被跳过 |
+| 紧急暂停 | `az containerapp job update -n <job> -g <rg> --max-executions 0`：已排队的任务保留在队列中；恢复时执行 `terraform apply` 即可 |
+| 目的地放行 | 目的地桶只需放行 `terraform output managed_transfer` 中的 `egress_ip` |
 
 ## 7. 故障处理
 
@@ -153,7 +176,9 @@ worker 会先确认你此刻持有**同一工单号**的、已激活的 `transfe
 | `data.access.denied` | 有人在没有激活授权时尝试访问数据并被拒绝，通常是误操作（例如在门户里浏览容器）。如果同一人反复出现，需要跟进 |
 | `rbac.changed` | 有人在 PIM 之外改动了方案作用域上的常驻角色分配。通过 IaC 正常发布时也会出现，需要与变更单核对 |
 | 托管搬运：`transfer.rejected` | 提交时的工单号与激活时的不一致，或激活已过期 |
-| 托管搬运：`transfer.failed`（多次）| AzCopy 临时错误会自动重试；3 次后消息进入 Service Bus 死信队列，由 IT 排查 Job 日志后重新提交 |
+| 托管搬运：`transfer.failed`（多次）| rclone 的错误信息记录在台账事件的消息和 Job 日志中；临时错误会自动重试，3 次后消息进入 Service Bus 死信队列，由 IT 排查后重新提交 |
+| 托管搬运：连接目的地超时 | 目的地防火墙 / 桶策略没有放行 worker 的出口 IP；注意路径上可能有多层防火墙（例如网卡和子网各一层），每一层都要放行 |
+| 托管搬运：`certificate signed by unknown authority` | 目的地使用私有 CA 时，在目的地凭证中提供 `ca_cert_pem`（worker 会把它与系统根证书合并使用）|
 
 Job 日志：
 

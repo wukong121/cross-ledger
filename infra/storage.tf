@@ -53,33 +53,6 @@ resource "azurerm_storage_container" "source_datasets" {
   container_access_type = "private"
 }
 
-# Landing zone — destination-country storage that training clusters consume.
-resource "azurerm_storage_account" "landing" {
-  name                            = "${local.sa_name}land"
-  resource_group_name             = azurerm_resource_group.landing.name
-  location                        = azurerm_resource_group.landing.location
-  account_tier                    = local.storage_common.account_tier
-  account_kind                    = local.storage_common.account_kind
-  account_replication_type        = "LRS"
-  min_tls_version                 = local.storage_common.min_tls_version
-  shared_access_key_enabled       = local.storage_common.shared_access_key_enabled
-  allow_nested_items_to_be_public = local.storage_common.allow_nested_items_to_be_public
-  https_traffic_only_enabled      = local.storage_common.https_traffic_only_enabled
-  public_network_access_enabled   = local.public_network_access_enabled
-  tags                            = merge(var.tags, { role = "landing" })
-
-  blob_properties {
-    delete_retention_policy { days = 7 }
-    container_delete_retention_policy { days = 7 }
-  }
-}
-
-resource "azurerm_storage_container" "landing_datasets" {
-  name                  = "datasets"
-  storage_account_id    = azurerm_storage_account.landing.id
-  container_access_type = "private"
-}
-
 # Audit archive — WORM copy of every ledger event (append blobs, one per day).
 resource "azurerm_storage_account" "audit" {
   name                            = "${local.sa_name}audit"

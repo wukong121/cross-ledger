@@ -8,6 +8,7 @@ dependencies = [
   "azure-identity>=1.19",
   "azure-storage-blob>=12.24",
   "azure-servicebus>=7.13",
+  "azure-keyvault-secrets>=4.9",
   "azure-monitor-ingestion>=1.0.4",
   "azure-monitor-query>=1.4",
   "azure-confidentialledger>=1.1.1",
