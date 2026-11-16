@@ -114,7 +114,7 @@ resource "azapi_resource" "job_transfer" {
           env = concat(local.common_env, [
             { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.transfer.client_id },
             { name = "XL_WORKER_IDENTITY", value = azurerm_user_assigned_identity.transfer.principal_id },
-            { name = "XL_DEST_SECRET_URI", value = local.dest_secret_uri },
+            { name = "XL_KEY_VAULT_URI", value = local.key_vault_uri },
             { name = "XL_RCLONE_TRANSFERS", value = tostring(var.rclone_transfers) },
           ])
         }]

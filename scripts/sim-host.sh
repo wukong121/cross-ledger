@@ -11,7 +11,7 @@
 #   * `rclone serve s3` on localhost = stand-in for the domestic S3-compatible object storage
 #
 #   ./scripts/sim-host.sh up      # prints the public IP -> add it to perimeter_allowed_ips
-#   ./scripts/sim-host.sh expose <worker-egress-ip>/32 > destination.json   # managed transfer PoC
+#   ./scripts/sim-host.sh expose <worker-egress-ip>/32 [name] [port] [buckets...] > dest.json   # managed transfer PoC
 #   ./scripts/sim-host.sh down
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,17 +52,19 @@ up() {
   echo "no capacity in: $LOCATIONS"; exit 1
 }
 
-# Expose the host's S3-compatible endpoint over TLS to ONE source CIDR (the managed
-# transfer worker's fixed egress IP) and print the destination secret for Key Vault.
-#   ./scripts/sim-host.sh expose <egress-ip>/32 > /tmp/destination.json
+# Expose an S3-compatible endpoint over TLS to ONE source CIDR (the managed transfer
+# worker's fixed egress IP) and print its rclone options + CA as JSON. Each name gets its own
+# port, credentials and data directory, so several "destinations" can be simulated.
+#   ./scripts/sim-host.sh expose <egress-ip>/32 [name] [port] [buckets...] > dest.json
 expose() {
-  local allowed="${1:?allowed CIDR, e.g. the worker egress IP /32}" ip
+  local allowed="${1:?allowed CIDR, e.g. the worker egress IP /32}" name="${2:-sim-s3}" port="${3:-9443}" ip
+  shift $(( $# < 3 ? $# : 3 )); local buckets="${*:-managed}"
   ip="$(az vm show -d -g "$RG" -n "$VM" --query publicIps -o tsv)"
   # Traffic must pass every NSG on the path (NIC and subnet — some subscriptions attach a
-  # subnet NSG automatically), so open 9443 for the worker's egress IP on all of them.
+  # subnet NSG automatically), so open the port for the worker's egress IP on all of them.
   for nsg in $(az network nsg list -g "$RG" --query "[].name" -o tsv); do
-    az network nsg rule create -g "$RG" --nsg-name "$nsg" -n allow-s3-tls-from-worker --priority 200 \
-      --direction Inbound --access Allow --protocol Tcp --destination-port-ranges 9443 \
+    az network nsg rule create -g "$RG" --nsg-name "$nsg" -n "allow-$name-from-worker" --priority $((200 + port % 100)) \
+      --direction Inbound --access Allow --protocol Tcp --destination-port-ranges "$port" \
       --source-address-prefixes "$allowed" -o none >&2
   done
   az vm run-command invoke -g "$RG" -n "$VM" --command-id RunShellScript --query "value[0].message" -o tsv --scripts "
@@ -74,20 +76,21 @@ if [ ! -f ca.pem ]; then
   printf 'subjectAltName=IP:$ip' > san.ext
   openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile san.ext -out server.pem 2>/dev/null
 fi
-SECRET=\$(grep secret_access_key /root/.config/rclone/rclone.conf | awk '{print \$3}')
-cat > /etc/systemd/system/sim-s3-tls.service <<UNIT
+[ -f $name.secret ] || openssl rand -hex 16 > $name.secret
+KEY=xl${name//-/}accesskey; SECRET=\$(cat $name.secret)
+cat > /etc/systemd/system/sim-$name.service <<UNIT
 [Unit]
-Description=Public TLS S3-compatible endpoint (stand-in for domestic object storage)
+Description=TLS S3-compatible endpoint '$name' (stand-in for a domestic object store)
 After=network-online.target
 [Service]
-ExecStart=/usr/bin/rclone serve s3 /data/s3 --addr :9443 --cert /etc/sim-s3/server.pem --key /etc/sim-s3/server.key --auth-key xlsimaccesskey,\$SECRET
+ExecStart=/usr/bin/rclone serve s3 /data/$name --addr :$port --cert /etc/sim-s3/server.pem --key /etc/sim-s3/server.key --auth-key \$KEY,\$SECRET
 Restart=always
 [Install]
 WantedBy=multi-user.target
 UNIT
-mkdir -p /data/s3/managed
-systemctl daemon-reload && systemctl enable --now sim-s3-tls >/dev/null 2>&1 && sleep 2
-python3 -c \"import json,sys; print(json.dumps({'name':'domestic','bucket':'managed','type':'s3','provider':'Rclone','endpoint':'https://$ip:9443','access_key_id':'xlsimaccesskey','secret_access_key':sys.argv[1],'ca_cert_pem':open('/etc/sim-s3/ca.pem').read()}))\" \"\$SECRET\"
+for b in $buckets; do mkdir -p /data/$name/\$b; done
+systemctl daemon-reload && systemctl enable --now sim-$name >/dev/null 2>&1 && systemctl restart sim-$name && sleep 2
+python3 -c \"import json,sys; print(json.dumps({'rclone':{'type':'s3','provider':'Rclone','endpoint':'https://$ip:$port','access_key_id':sys.argv[1],'secret_access_key':sys.argv[2]},'ca_cert_pem':open('/etc/sim-s3/ca.pem').read()}))\" \"\$KEY\" \"\$SECRET\"
 " | sed -n '/^{/p'
 }
 

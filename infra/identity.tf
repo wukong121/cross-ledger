@@ -90,9 +90,11 @@ locals {
     # transfer worker: read source, consume its queue, read destination credentials, emit events
     xfer_src_read = { scope = azurerm_storage_account.source.id, role = "Storage Blob Data Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     # Data Owner on the queue only: KEDA's Service Bus scaler needs to read queue runtime properties.
-    xfer_queue        = { scope = local.bus_queue_id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
-    xfer_kv           = { scope = local.key_vault_id, role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.transfer.principal_id }
-    ops_kv_officer    = { scope = local.key_vault_id, role = "Key Vault Secrets Officer", principal = azuread_group.this["it_ops"].object_id }
+    xfer_queue     = { scope = local.bus_queue_id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
+    xfer_kv        = { scope = local.key_vault_id, role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.transfer.principal_id }
+    ops_kv_officer = { scope = local.key_vault_id, role = "Key Vault Secrets Officer", principal = azuread_group.this["it_ops"].object_id }
+    # data team: list registered destinations (names + tags via ARM), never secret values
+    team_kv_reader    = { scope = local.key_vault_id, role = "Reader", principal = azuread_group.this["data_team"].object_id }
     xfer_pim_read     = { scope = azurerm_resource_group.gov.id, role = "Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_audit_append = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_dcr          = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.transfer.principal_id }

@@ -52,7 +52,9 @@ class Settings:
     ctl_scope: str = ""
     operator_role_id: str = ""
     worker_identity: str = ""
-    dest_secret_uri: str = ""
+    key_vault_uri: str = ""
+    key_vault_id: str = ""
+    transfer_job: str = ""
     service_identities: list[str] = field(default_factory=list)
     known_services: dict[str, str] = field(default_factory=dict)  # object id -> label
     roles: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -101,7 +103,9 @@ def settings() -> Settings:
         ctl_scope=ctl_scope,
         operator_role_id=_get("XL_OPERATOR_ROLE_ID") or roles.get("transfer-operator", {}).get("role", ""),
         worker_identity=_get("XL_WORKER_IDENTITY"),
-        dest_secret_uri=_get("XL_DEST_SECRET_URI"),
+        key_vault_uri=_get("XL_KEY_VAULT_URI").rstrip("/"),
+        key_vault_id=_get("XL_KEY_VAULT_ID"),
+        transfer_job=_get("XL_TRANSFER_JOB"),
         service_identities=[x for x in _get("XL_SERVICE_IDENTITIES").split(",") if x],
         known_services={k.lower(): v for k, v in json.loads(_get("XL_KNOWN_SERVICES") or "{}").items()},
         roles=roles,

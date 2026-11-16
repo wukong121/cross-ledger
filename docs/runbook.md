@@ -131,18 +131,30 @@ NSPAccessLogs | where ResultAction == "Denied" | summarize count() by SourceIpAd
 
 启用 `enable_managed_transfer` 后，数据团队可以把搬运交给平台：申请的是 `transfer-operator`（**只能提交任务，读不到数据**），实际搬运由 Azure 上的 worker 以服务身份完成（rclone → 国内对象存储，逐对象校验，写 manifest）。
 
-### 6.1 数据团队：申请并提交
+### 6.1 数据团队：查看目的地、申请、提交
 
 ```bash
-uv run xl request transfer-operator -t DT-2026-0002 -r "首批：batch-001～100 搬到国内对象存储" --hours 2
+uv run xl dest list                                   # IT 已注册的目的地及其允许范围
+
+# 申请时写明目的地（可多个）：审批人在审批页的理由中看得到，worker 只放行这些目的地
+uv run xl request transfer-operator -t DT-2026-0002 -r "首批：batch-001～100 搬到国内对象存储" \
+  --to cloud-x:train-data/2026Q4/ --to idc:datasets/eval/ --hours 2
 #   → IT 审批
-uv run xl transfer -t DT-2026-0002 -p batch-001/ -p batch-002/                 # 每个前缀一个分片，并行执行
-uv run xl transfer -t DT-2026-0002 --manifest prefixes.txt --dest-root 2026Q4/  # 大批量：前缀清单，一行一个
-uv run xl revoke transfer-operator -t DT-2026-0002                              # 提交完即可交还，不影响已提交的任务
+
+# 提交：单条路线
+uv run xl transfer -t DT-2026-0002 -p batch-001/ -p batch-002/ --to cloud-x:train-data/2026Q4/
+
+# 提交：计划文件（多条路线、多个目的地），先 --dry-run 校验
+uv run xl transfer --plan plan.yaml --dry-run
+uv run xl transfer --plan plan.yaml
+
+uv run xl revoke transfer-operator -t DT-2026-0002    # 提交完即可交还，不影响已提交的分片
 ```
 
-- 授权只需要覆盖**提交**的时间。worker 在每个分片开始时校验提交人是否持有**同一工单号**的已激活授权，所以要在授权有效期内提交；任务开始后，交还权限不会中断搬运
-- 工单号不一致或授权已过期的提交会被拒绝（`transfer.rejected`），并触发告警
+计划文件示例见 [examples/transfer-plan.yaml](examples/transfer-plan.yaml)。每个分片落在 `<目标>/<前缀>`，例如 `cloud-x:train-data/2026Q4/batch-001/`。
+
+- 授权以**提交时刻**为准：要在授权有效期内提交；已经提交的分片即使排队到授权结束之后，也会照常执行
+- 目标必须同时在“IT 注册的范围”和“本工单批准的目的地”内，CLI 会先检查；不满足时 worker 也会拒绝（`transfer.rejected`）并触发告警
 
 ### 6.2 跟踪进度
 
@@ -156,11 +168,13 @@ uv run xl timeline DT-2026-0002        # transfer.started → verify.passed → 
 
 | 事项 | 做法 |
 |---|---|
-| 轮换目的地凭证 | 更新 Key Vault 机密 `transfer-destination`（见 deployment.md），下一个分片自动生效，无需重新部署 |
+| 注册 / 更新目的地 | `xl dest add <名称> --from-rclone <远端> --allow <bucket/前缀/>`（见 deployment.md）；重新执行即可轮换凭证或调整范围，下一个分片生效 |
+| 测试目的地 | `xl dest test <名称>`：从 worker 发起列举、写入、读取、删除探测，结果写入台账（工单号 `DEST-<名称>`）|
+| 停用目的地 | `xl dest remove <名称>` |
 | 告警 | 出现 `transfer.failed` / `transfer.rejected` / `verify.failed` / `audit.gap` / 越权访问时，Azure Monitor 邮件通知 `alert_emails` |
 | 失败重试 | 失败的分片自动重试；3 次后进入 Service Bus 死信队列。修复原因后重新 `xl transfer` 同一前缀即可，已传完的对象会被跳过 |
 | 紧急暂停 | `az containerapp job update -n <job> -g <rg> --max-executions 0`：已排队的任务保留在队列中；恢复时执行 `terraform apply` 即可 |
-| 目的地放行 | 目的地桶只需放行 `terraform output managed_transfer` 中的 `egress_ip` |
+| 目的地放行 | 每个目的地只需放行 `terraform output managed_transfer` 中的 `egress_ip` |
 
 ## 7. 故障处理
 
@@ -177,6 +191,9 @@ uv run xl timeline DT-2026-0002        # transfer.started → verify.passed → 
 | `rbac.changed` | 有人在 PIM 之外改动了方案作用域上的常驻角色分配。通过 IaC 正常发布时也会出现，需要与变更单核对 |
 | 托管搬运：`transfer.rejected` | 提交时的工单号与激活时的不一致，或激活已过期 |
 | 托管搬运：`transfer.failed`（多次）| rclone 的错误信息记录在台账事件的消息和 Job 日志中；临时错误会自动重试，3 次后消息进入 Service Bus 死信队列，由 IT 排查后重新提交 |
+| 托管搬运：`... is outside the scope registered for destination` | 目标不在 IT 注册的允许范围内；确认 bucket / 前缀，或请 IT 调整注册范围 |
+| 托管搬运：`... is not covered by the approved destinations` | 目标不在本工单批准的目的地内；用新的 `--to` 重新申请 |
+| 托管搬运：`transfer-operator requests must name the destination(s)` | 申请 `transfer-operator` 时必须带 `--to` |
 | 托管搬运：连接目的地超时 | 目的地防火墙 / 桶策略没有放行 worker 的出口 IP；注意路径上可能有多层防火墙（例如网卡和子网各一层），每一层都要放行 |
 | 托管搬运：`certificate signed by unknown authority` | 目的地使用私有 CA 时，在目的地凭证中提供 `ca_cert_pem`（worker 会把它与系统根证书合并使用）|
 

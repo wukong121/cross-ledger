@@ -75,9 +75,35 @@ def request(
     ticket: Ticket,
     reason: Reason,
     hours: Annotated[float, typer.Option(help="Activation length (capped by policy)")] = 2,
+    to: Annotated[
+        list[str],
+        typer.Option(
+            "--to",
+            help="transfer-operator: destination(s) this ticket may write to, "
+            "<destination>:<bucket>/<path>/ (repeatable). Shown to the approver and enforced.",
+        ),
+    ] = [],  # noqa: B006
 ) -> None:
     """Ask for just-in-time access (PIM activation → IT ops approval)."""
+    from . import destinations as dst
+
     r = _role(role)
+    if to and role != "transfer-operator":
+        _fail(RuntimeError("--to only applies to transfer-operator"))
+    if role == "transfer-operator" and not to:
+        _fail(
+            RuntimeError("transfer-operator requests must name the destination(s): --to <destination>:<bucket>/<path>/")
+        )
+    targets = []
+    for t in to:
+        try:
+            target = dst.Target.parse(t)
+            if not dst.in_scope(target, dst.allowed_scope(target.name)):
+                raise dst.DestinationError(f"{target} is outside the scope IT registered for '{target.name}'")
+        except dst.DestinationError as e:
+            _fail(e)
+        targets.append(target)
+    reason = dst.with_targets(reason, targets)
     who = me()
     guid = r["role"].rsplit("/", 1)[-1].lower()
     elig = [e for e in pim.my_eligibilities(r["scope"]) if e["properties"]["roleDefinitionId"].lower().endswith(guid)]
@@ -136,64 +162,238 @@ def cancel(
         con.print(f"[green]cancelled[/] {x['name']}")
 
 
+def _plan_shards(plan: Path) -> tuple[str | None, list[tuple[str, str]]]:
+    """Read a transfer plan (YAML) -> (ticket, [(source prefix, target)])."""
+    import yaml
+
+    from . import destinations as dst
+
+    doc = yaml.safe_load(plan.read_text()) or {}
+    shards: list[tuple[str, str]] = []
+    for n, route in enumerate(doc.get("routes") or [], 1):
+        if "to" not in route:
+            raise dst.DestinationError(f"route #{n}: missing 'to'")
+        prefixes = list(route.get("prefixes") or [])
+        if route.get("prefixes_file"):
+            f = (plan.parent / route["prefixes_file"]).read_text().splitlines()
+            prefixes += [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        if not prefixes:
+            raise dst.DestinationError(f"route #{n}: no prefixes")
+        shards += [(p, route["to"]) for p in prefixes]
+    return doc.get("ticket"), shards
+
+
 @app.command()
 def transfer(
-    ticket: Ticket,
+    ticket: Annotated[str | None, typer.Option("--ticket", "-t", help="Ticket (or set it in the plan)")] = None,
     prefix: Annotated[
         list[str], typer.Option("--prefix", "-p", help="Source prefix (repeatable). One shard each.")
     ] = [],  # noqa: B006
-    manifest: Annotated[Path | None, typer.Option(help="File with one source prefix per line")] = None,
-    dest_root: Annotated[str, typer.Option(help="Prepended to each prefix at the destination")] = "",
-    no_verify: Annotated[bool, typer.Option("--no-verify", help="Skip md5/size verification")] = False,
+    to: Annotated[
+        str | None, typer.Option("--to", help="<destination>:<bucket>/<path>/ for the --prefix shards")
+    ] = None,
+    plan: Annotated[Path | None, typer.Option(help="Transfer plan (YAML): routes of prefixes -> destinations")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Validate and show the shards, submit nothing")] = False,
+    no_verify: Annotated[bool, typer.Option("--no-verify", help="Skip size/hash verification")] = False,
+    no_precheck: Annotated[bool, typer.Option("--no-precheck", hidden=True)] = False,
 ) -> None:
-    """Submit a transfer (requires an activated transfer-operator role for the same ticket)."""
-    from azure.servicebus import ServiceBusClient, ServiceBusMessage
+    """Submit a managed transfer. Every shard's destination must be registered by IT and approved for the ticket."""
+    from . import destinations as dst
 
-    from .identity import credential
+    shards: list[tuple[str, str]] = []
+    if plan:
+        try:
+            plan_ticket, shards = _plan_shards(plan)
+        except (dst.DestinationError, OSError) as e:
+            _fail(e)
+        ticket = ticket or plan_ticket
+    if prefix:
+        if not to:
+            _fail(RuntimeError("--prefix needs --to <destination>:<bucket>/<path>/"))
+        shards += [(p, to) for p in prefix]
+    if not ticket or not shards:
+        _fail(RuntimeError("need a ticket and at least one shard (--prefix ... --to ..., or --plan)"))
 
-    prefixes = list(prefix)
-    if manifest:
-        prefixes += [ln.strip() for ln in manifest.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
-    if not prefixes:
-        _fail(RuntimeError("give at least one --prefix or --manifest"))
     who = me()
     s = settings()
-    sb = ServiceBusClient(s.bus_namespace, credential=credential())
-    sender = sb.get_queue_sender(s.bus_queue)
-    t = Table("shard", "request id", "source prefix", "destination prefix")
-    for i, p in enumerate(prefixes, 1):
+    # resolve + pre-check (the worker enforces the same rules again — this is for fast feedback)
+    resolved = []
+    scopes: dict[str, list[str]] = {}
+    approved: list = []
+    if not no_precheck:
+        guid = s.operator_role_id.rsplit("/", 1)[-1]
+        act = pim.active_activation_for_ticket(s.ctl_scope, who["oid"], guid, ticket)
+        if not act:
+            _fail(
+                RuntimeError(
+                    f"no active transfer-operator activation for ticket {ticket} — "
+                    f"`xl request transfer-operator -t {ticket} --to ...` first"
+                )
+            )
+        approved = dst.approved_targets(act["properties"].get("justification"))
+    for p, t in shards:
         p = p.strip("/") + "/"
+        try:
+            target = dst.Target.parse(t).join(p)
+            if not no_precheck:
+                if target.name not in scopes:
+                    scopes[target.name] = dst.allowed_scope(target.name)
+                reason = dst.check_target(target, scopes[target.name], approved)
+                if reason:
+                    raise dst.DestinationError(reason)
+        except dst.DestinationError as e:
+            _fail(e)
+        resolved.append((p, target))
+
+    t = Table("shard", "request id", "source prefix", "target")
+    bodies = []
+    for i, (p, target) in enumerate(resolved, 1):
         body = {
             "requestId": str(uuid.uuid4()),
             "ticketId": ticket,
             "requesterId": who["oid"],
             "requesterName": who["upn"],
             "srcPrefix": p,
-            "dstPrefix": f"{dest_root.strip('/')}/{p}" if dest_root else p,
+            "target": str(target),
             "submittedAt": iso(utcnow()),
             "verify": not no_verify,
         }
-        try:
-            sender.send_messages(
-                ServiceBusMessage(
-                    json.dumps(body),
-                    message_id=body["requestId"],
-                    subject=ticket,
-                    application_properties={"ticketId": ticket, "requester": who["upn"]},
+        bodies.append(body)
+        t.add_row(str(i), "(dry run)" if dry_run else body["requestId"], p, str(target))
+    if dry_run:
+        con.print(t)
+        con.print(f"[yellow]dry run[/] — {len(bodies)} shard(s) valid, nothing submitted")
+        return
+
+    from azure.servicebus import ServiceBusClient, ServiceBusMessage
+
+    from .identity import credential
+
+    with ServiceBusClient(s.bus_namespace, credential=credential()) as sb, sb.get_queue_sender(s.bus_queue) as sender:
+        for body in bodies:
+            try:
+                sender.send_messages(
+                    ServiceBusMessage(
+                        json.dumps(body),
+                        message_id=body["requestId"],
+                        subject=ticket,
+                        application_properties={"ticketId": ticket, "requester": who["upn"], "target": body["target"]},
+                    )
                 )
-            )
-        except Exception as e:  # most likely 403: role not activated
-            _fail(
-                RuntimeError(
-                    f"queue rejected the request ({type(e).__name__}). "
-                    f"Is transfer-operator active? `xl request transfer-operator -t {ticket} ...`"
-                )
-            )
-        t.add_row(str(i), body["requestId"], p, body["dstPrefix"])
-    sender.close()
-    sb.close()
+            except Exception as e:  # most likely 403: role not activated yet / RBAC still propagating
+                _fail(RuntimeError(f"queue rejected the request ({type(e).__name__}) — is transfer-operator active?"))
     con.print(t)
-    con.print(f"[green]{len(prefixes)} shard(s) queued[/] — follow with `xl timeline {ticket}`")
+    con.print(f"[green]{len(bodies)} shard(s) queued[/] — follow with `xl timeline {ticket}`")
+
+
+# ------------------------------------------------------------------ destinations --
+
+dest_app = typer.Typer(no_args_is_help=True, help="Destination registry for managed transfers (IT ops register).")
+app.add_typer(dest_app, name="dest")
+
+
+@dest_app.command("list")
+def dest_list() -> None:
+    """Registered destinations and the bucket/prefix scope each may receive (no credentials shown)."""
+    from . import destinations as dst
+
+    t = Table("name", "type / provider", "allowed scope", "description", "updated")
+    for d in dst.list_all():
+        if d["enabled"]:
+            t.add_row(
+                d["name"],
+                f"{d['type']} / {d['provider'] or '-'}",
+                ", ".join(d["allow"]),
+                d["description"],
+                str(d["updated"] or "")[:19],
+            )
+    con.print(t)
+
+
+@dest_app.command("add")
+def dest_add(
+    name: Annotated[str, typer.Argument(help="Destination name, e.g. cloud-x")],
+    allow: Annotated[list[str], typer.Option("--allow", help="bucket/prefix/ data may be written to (repeatable)")],
+    from_rclone: Annotated[
+        str | None, typer.Option(help="Take connection + credentials from this local rclone remote")
+    ] = None,
+    rclone_config: Annotated[Path | None, typer.Option(help="rclone config file (default: rclone's own)")] = None,
+    from_json: Annotated[Path | None, typer.Option(help="...or from a JSON file of rclone remote options")] = None,
+    ca_cert: Annotated[Path | None, typer.Option(help="PEM of a private CA the destination uses")] = None,
+    description: Annotated[str, typer.Option()] = "",
+) -> None:
+    """(IT ops) Register or update a destination. Written through ARM — no Key Vault network access needed."""
+    import subprocess
+
+    from . import destinations as dst
+
+    if bool(from_rclone) == bool(from_json):
+        _fail(RuntimeError("use exactly one of --from-rclone / --from-json"))
+    if from_rclone:
+        cmd = ["rclone", "config", "dump"] + (["--config", str(rclone_config)] if rclone_config else [])
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            _fail(RuntimeError(f"rclone config dump failed: {r.stderr.strip()[:300]}"))
+        remotes = json.loads(r.stdout or "{}")
+        if from_rclone not in remotes:
+            _fail(RuntimeError(f"rclone remote '{from_rclone}' not found ({', '.join(remotes) or 'none'})"))
+        options = remotes[from_rclone]
+    else:
+        options = json.loads(from_json.read_text())
+    try:
+        dst.put(
+            name, options, [a.strip("/") + "/" for a in allow], description, ca_cert.read_text() if ca_cert else None
+        )
+    except (dst.DestinationError, ArmError) as e:
+        _fail(e)
+    con.print(
+        f"[green]registered[/] {name}: {options.get('type')}/{options.get('provider', '-')} "
+        f"allow={', '.join(a.strip('/') + '/' for a in allow)}  (credentials stored in Key Vault, not shown)"
+    )
+    con.print(f"next: `xl dest test {name}`")
+
+
+@dest_app.command("remove")
+def dest_remove(name: Annotated[str, typer.Argument()]) -> None:
+    """(IT ops) Retire a destination (disabled in Key Vault; new shards to it are rejected)."""
+    from . import destinations as dst
+
+    try:
+        dst.delete(name)
+    except (dst.DestinationError, ArmError) as e:
+        _fail(e)
+    con.print(f"[green]retired[/] {name}")
+
+
+@dest_app.command("test")
+def dest_test(name: Annotated[str, typer.Argument()]) -> None:
+    """(IT ops) Run a connectivity test from the transfer worker (list, write, read, delete a probe)."""
+    import time
+
+    from .identity import arm
+
+    s = settings()
+    job = f"/subscriptions/{s.subscription_id}/resourceGroups/{s.gov_rg}/providers/Microsoft.App/jobs/{s.transfer_job}"
+    try:
+        tpl = arm("GET", job, "2025-01-01")["properties"]["template"]
+        c = tpl["containers"][0]
+        c["command"] = ["crossledger", "dest-test", name]
+        c.pop("args", None)
+        ex = arm("POST", f"{job}/start", "2025-01-01", {"containers": [c]})
+    except ArmError as e:
+        _fail(e)
+    con.print(f"running {ex['name']} from the transfer worker (same identity, network and egress IP as real shards)…")
+    while True:
+        st = arm("GET", f"{job}/executions/{ex['name']}", "2025-01-01")["properties"]["status"]
+        if st in ("Succeeded", "Failed", "Stopped", "Degraded"):
+            break
+        time.sleep(10)
+    ok = st == "Succeeded"
+    con.print(
+        f"[{'green' if ok else 'red'}]{name}: {'PASSED' if ok else 'FAILED'}[/] — details in the ledger: "
+        f"`xl timeline DEST-{name}` (a few minutes)"
+    )
+    raise typer.Exit(0 if ok else 1)
 
 
 @app.command("rclone-config")
@@ -425,6 +625,14 @@ def seed() -> None:
     from . import seed as sd
 
     raise typer.Exit(sd.main())
+
+
+@app.command("dest-test", hidden=True)
+def dest_test_job(name: Annotated[str, typer.Argument()]) -> None:
+    """(job) connectivity test for a destination, run inside the transfer worker."""
+    from . import worker as w
+
+    raise typer.Exit(w.dest_test(name))
 
 
 @app.callback()

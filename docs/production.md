@@ -93,7 +93,7 @@ flowchart LR
 - [ ] 网络：阶段一使用 NSP（不要直接打开存储防火墙）；规划阶段二的专线 + Private Endpoint
 - [ ] `eligibility_mode = "group"`，并在客户租户中实测 PIM 识别新组成员的耗时
 - [ ] 为数据团队配置时长更长的批量搬运角色（仍需审批）；或改用托管搬运组件
-- [ ] 托管组件：Key Vault 开启清除保护（`purge_protection_enabled`）；目的地凭证使用只写、限定桶的子账号/访问密钥，并定期轮换；国内对象存储桶策略只放行 worker 的固定出口 IP
+- [ ] 托管组件：Key Vault 开启清除保护（`purge_protection_enabled`）；目的地凭证使用只写、限定桶的子账号/访问密钥，并定期轮换（`xl dest add` 同名重新注册即可）；注册范围（`--allow`）尽量收窄到具体 bucket/前缀；国内对象存储只放行 worker 的固定出口 IP；新增目的地后先 `xl dest test`
 - [ ] 配置 `alert_emails`（或把告警接入 Teams / 企业微信 / 飞书）
 - [ ] `it_ops_owner_mode = "eligible"`：IT 的 Owner 也改为 PIM 激活（免审批，但留痕）
 - [ ] Conditional Access：给 PIM 激活绑定认证上下文（MFA + 合规设备）

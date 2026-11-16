@@ -1,0 +1,14 @@
+# Transfer plan for the managed transfer component — `xl transfer --plan <file> [--dry-run]`
+#
+# Every route sends source prefixes (one shard each) to a target "<destination>:<bucket>/<path>/".
+# Each target must be
+#   1. inside the scope IT registered for that destination   (`xl dest list`), and
+#   2. inside the destinations approved for the ticket        (`xl request ... --to ...`).
+# A shard lands at <target>/<prefix>, e.g. cloud-x:train-data/2026Q4/batch-001/.
+ticket: DT-POC-0008
+routes:
+  - to: cloud-x:train-data/2026Q4/
+    prefixes: [batch-001/, batch-002/]
+  - to: idc:datasets/eval/
+    prefixes: [batch-003/]
+    # prefixes_file: eval-prefixes.txt   # or one prefix per line, relative to this file

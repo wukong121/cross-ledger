@@ -7,15 +7,12 @@
 #     of this subscription (the worker) and the operators' admin IPs may connect
 #   * every secret read / write is logged (AuditEvent -> Log Analytics)
 #
-# Secret `transfer-destination` (JSON, set by IT ops — see docs/runbook.md):
-#   {"type":"s3","provider":"...","endpoint":"https://...","access_key_id":"...",
-#    "secret_access_key":"...","bucket":"...","region":"...","ca_cert_pem":"(optional)"}
-# Rotating it needs no redeploy: the worker reads it at the start of every shard.
+# Destinations: one secret per destination, `dest-<name>`, registered by IT ops with
+# `xl dest add` (through ARM — no data-plane network access needed). Users list them
+# (names + tags only, never values) with `xl dest list` and pick one per transfer.
+# The worker reads the secret at the start of every shard, so updates need no redeploy.
 # -----------------------------------------------------------------------------
 
-locals {
-  dest_secret_name = "transfer-destination"
-}
 
 resource "azurerm_key_vault" "this" {
   count                         = var.enable_managed_transfer ? 1 : 0
@@ -86,6 +83,6 @@ resource "azurerm_monitor_diagnostic_setting" "key_vault" {
 }
 
 locals {
-  dest_secret_uri = var.enable_managed_transfer ? "${azurerm_key_vault.this[0].vault_uri}secrets/${local.dest_secret_name}" : ""
-  key_vault_id    = var.enable_managed_transfer ? azurerm_key_vault.this[0].id : ""
+  key_vault_uri = var.enable_managed_transfer ? azurerm_key_vault.this[0].vault_uri : ""
+  key_vault_id  = var.enable_managed_transfer ? azurerm_key_vault.this[0].id : ""
 }

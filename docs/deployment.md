@@ -43,7 +43,7 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars   # 该文件已被 .gi
 | `enable_managed_transfer` | `false` | 可选的托管搬运组件：Service Bus 提交任务 → Container Apps Job 以服务身份运行 rclone，经私网读取源数据并写入目的地对象存储；附带 Key Vault（目的地凭证）和 NAT Gateway（固定出口 IP）。默认的数据通道是 rclone 自助拉取，不需要它 |
 | `transfer_parallelism` | `4` | 托管搬运组件同时运行的分片数 |
 | `rclone_transfers` | `16` | 托管搬运中每个分片内 rclone 的并发文件数 |
-| `secrets_admin_ips` | `[]` | 允许通过数据面管理 Key Vault 的运维 IP（可选；推荐通过 ARM 管理面写入凭证，见下文）|
+| `secrets_admin_ips` | `[]` | 允许通过数据面访问 Key Vault 的运维 IP（可选；注册目的地走 ARM 管理面，不需要它）|
 | `alert_emails` | `[]` | 台账出现失败、拒绝、校验失败、证据缺失、越权访问时通知的邮箱 |
 | `known_service_principals` | `{}` | 允许在授权窗口外读取数据的平台服务（对象 ID → 名称），例如数据分类扫描；其访问记为提示而非异常 |
 | `collector_cron` | `*/5 * * * *` | collector 的运行频率 |
@@ -111,37 +111,42 @@ cd app && uv run xl roles   # 检查自己的资格
 | `terraform` 报 Graph 401：`TokenIssuedBeforeRevocationTimestamp` | 账号会话被撤销（例如改了密码），Azure CLI 缓存的旧令牌已失效。重新 `az login`；若仍报错，清除 Azure CLI 的访问令牌缓存后重试 |
 | 公共 IP 的 `ip_tags` 出现漂移 | 部分订阅会由平台自动添加 IP 标签；已在代码中忽略该属性 |
 
-### 托管搬运组件：配置目的地
+### 托管搬运组件：注册目的地（IT 运维）
 
-启用 `enable_managed_transfer` 后，还需要两步：
+目的地 = 一个命名的 rclone 远端（连接信息 + 凭证）+ 允许写入的 bucket/前缀范围。**只有 IT 运维可以注册**；数据人员在申请和提交时从中选择。
 
-1. **国内对象存储放行 worker 的出口 IP**：`terraform -chdir=infra output managed_transfer` 中的 `egress_ip` 是 worker 唯一的公网出口，在目的地桶策略 / 防火墙中只放行这个 IP。
-2. **写入目的地凭证**（Key Vault 机密 `transfer-destination`，JSON 格式）。除 `name`、`bucket`、`ca_cert_pem` 外，其余字段都会作为 rclone 远端的配置项，因此可以对接 rclone 支持的任意对象存储：
-
-```json
-{
-  "name": "domestic",
-  "bucket": "<bucket>",
-  "type": "s3",
-  "provider": "<rclone 中对应云厂商的 provider>",
-  "endpoint": "https://<对象存储 endpoint>",
-  "region": "<region>",
-  "access_key_id": "<只写、限定桶的访问密钥>",
-  "secret_access_key": "<...>",
-  "ca_cert_pem": "<可选：目的地使用私有 CA 时提供>"
-}
-```
-
-推荐由 IT 运维通过 **ARM 管理面**写入。这样不需要能访问 Key Vault 数据面的网络，只需要对资源组的 Owner / Key Vault Contributor 权限：
+**1. 用 rclone 配好远端并自测**（在 IT 自己的机器上；各云厂商的 provider、endpoint、地址风格等差异都由 rclone 处理）：
 
 ```bash
-KV_ID=$(az keyvault show -n <kv-name> --query id -o tsv)
-python3 -c "import json;print(json.dumps({'properties':{'value':open('destination.json').read(),'contentType':'application/json'}}))" > body.json
-az rest --method put --url "https://management.azure.com$KV_ID/secrets/transfer-destination?api-version=2023-07-01" --body @body.json
-shred -u destination.json body.json
+rclone config                       # 新建远端，例如 cloud-x，按提示选择厂商、区域，填入访问密钥
+rclone lsd cloud-x:                 # 确认可以访问
 ```
 
-worker 在每个分片开始时读取该机密，因此**轮换凭证不需要重新部署**。所有读取都记录在 Key Vault 审计日志中。
+建议使用**只能写入指定 bucket 的子账号 / 访问密钥**，不要使用主账号密钥。
+
+**2. 注册到方案中**（经 ARM 管理面写入 Key Vault，不需要 Key Vault 数据面的网络访问；凭证不会输出到屏幕）：
+
+```bash
+xl dest add cloud-x --from-rclone cloud-x --allow train-data/ --allow eval-data/ \
+  --description "国内公有云对象存储（区域 X）"           # 目的地使用私有 CA 时加 --ca-cert ca.pem
+xl dest add idc --from-rclone idc --allow datasets/ --description "本地 IDC 对象存储"
+```
+
+也可以用 `--from-json <文件>` 直接提供 rclone 远端选项（即 `rclone config dump` 中该远端的内容）。
+
+**3. 放行 worker 的出口 IP**：`terraform -chdir=infra output managed_transfer` 中的 `egress_ip` 是 worker 唯一的公网出口，在每个目的地的桶策略 / 防火墙中只放行这个 IP。注意路径上可能有多层防火墙，每一层都要放行。
+
+**4. 连通性测试**：从 worker 本身（同一身份、网络和出口 IP）列举、写入、读取、删除一个探测对象，结果写入台账：
+
+```bash
+xl dest test cloud-x
+xl dest list                        # 数据人员也能执行：只看到名称、类型、允许范围和说明
+```
+
+| 维护操作 | 命令 |
+|---|---|
+| 轮换凭证 / 修改允许范围 | 重新执行 `xl dest add <同名> ...`，下一个分片即生效，无需重新部署 |
+| 停用目的地 | `xl dest remove <名称>`：在 Key Vault 中禁用，之后提交到该目的地的分片会被拒绝 |
 
 ## 5. 增删人员
 
@@ -178,8 +183,11 @@ uv run ruff check src tests
 SIM_LOCATIONS="<region-1> <region-2>" ./scripts/sim-host.sh up    # 输出公网 IP；小规格 VM 容量不足时自动换规格/区域
 # 把该 IP 加入 infra/terraform.tfvars：perimeter_allowed_ips = ["<ip>/32"]，并设置 source_public_access = "perimeter"
 terraform -chdir=infra apply
-# 托管搬运验证：在测试机上开放 TLS S3 端点，只允许 worker 的出口 IP 访问，并输出目的地凭证 JSON
-./scripts/sim-host.sh expose "$(terraform -chdir=infra output -json managed_transfer | jq -r .egress_ip)/32" > destination.json
+# 托管搬运验证：在测试机上开放两个 TLS S3 端点（模拟两个目的地），只允许 worker 的出口 IP 访问，
+# 输出各自的 rclone 远端选项和 CA 证书（JSON），再用 xl dest add --from-json 注册
+EGRESS="$(terraform -chdir=infra output -json managed_transfer | jq -r .egress_ip)/32"
+./scripts/sim-host.sh expose "$EGRESS" cloud-x 9443 train-data eval-data > cloud-x.json
+./scripts/sim-host.sh expose "$EGRESS" idc 9444 datasets > idc.json
 ./scripts/sim-host.sh down                                         # 用完删除
 ```
 

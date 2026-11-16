@@ -2,7 +2,8 @@
 
     cd app && uv run python ../scripts/capture_poc.py [TICKET]
 
-One-off captures (need a live pending request, run by hand):
+One-off captures (need a live pending request / the simulation host, run by hand):
+    40, 42-48 (destination registry, plan file, enforcement — see docs/poc-report.md §5.3)
     14-approvals, 15-self-approve, 16-timeline-cancel, 20..26 (scripts/sim_run.py)
     e.g. CAPTURE_PROMPT="xl approvals" uv run python ../scripts/capture.py 14-approvals "IT ops: pending approvals" -- uv run xl approvals
 
@@ -105,7 +106,8 @@ table(
 # --- optional managed transfer component ---------------------------------------------------------
 MT = os.environ.get("MT_TICKET", "DT-POC-0007")  # a clean managed-transfer ticket
 MT_REJECT = os.environ.get("MT_REJECT_TICKET", "DT-POC-9998")  # a submission with a mismatching ticket
-if JOB:
+if JOB:  # optional managed transfer component
+    xl("41-dest-list", "Users: registered destinations and their allowed scope (no credentials)", "dest", "list")
     ev = kql(
         f"XLedger_CL | where Origin == 'transfer-worker' and TicketId in ('{MT}','{MT_REJECT}') "
         "| project at=format_datetime(TimeGenerated,'HH:mm:ss'), ticket=TicketId, event=EventType, message=Message "

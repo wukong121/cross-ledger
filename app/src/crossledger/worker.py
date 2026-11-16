@@ -41,27 +41,33 @@ class RetryableError(RuntimeError):
 
 @dataclass
 class Destination:
-    """rclone remote for the destination object storage (from the Key Vault secret)."""
+    """A registered destination: rclone remote options + allowed scope (Key Vault secret ``dest-<name>``)."""
 
     name: str
-    bucket: str
+    allow: list[str]
     env: dict[str, str]
     ca_cert_file: str | None = None
 
     @classmethod
-    def from_key_vault(cls, secret_uri: str) -> Destination:
+    def from_key_vault(cls, name: str) -> Destination:
+        from azure.core.exceptions import ResourceNotFoundError
         from azure.keyvault.secrets import SecretClient
 
-        vault, _, rest = secret_uri.partition("/secrets/")
-        doc = json.loads(SecretClient(vault, credential()).get_secret(rest.split("/")[0]).value)
-        return cls.from_dict(doc)
+        from .destinations import NAME_RE, SECRET_PREFIX, DestinationError
+
+        if not NAME_RE.match(name):
+            raise DestinationError(f"invalid destination name {name!r}")
+        try:
+            sec = SecretClient(settings().key_vault_uri, credential()).get_secret(f"{SECRET_PREFIX}{name}")
+        except ResourceNotFoundError as e:
+            raise DestinationError(f"destination '{name}' is not registered") from e
+        if sec.properties.enabled is False:
+            raise DestinationError(f"destination '{name}' is retired")
+        return cls.from_dict(name, json.loads(sec.value))
 
     @classmethod
-    def from_dict(cls, doc: dict[str, Any]) -> Destination:
-        doc = dict(doc)
-        name = doc.pop("name", "destination")
-        bucket = doc.pop("bucket")
-        ca_pem = doc.pop("ca_cert_pem", None)
+    def from_dict(cls, name: str, doc: dict[str, Any]) -> Destination:
+        ca_pem = doc.get("ca_cert_pem")
         ca_file = None
         if ca_pem:
             # rclone's --ca-cert REPLACES the trust store for every TLS connection (including the
@@ -76,9 +82,9 @@ class Destination:
             f.write(system_roots.rstrip() + "\n" + ca_pem)
             f.close()
             ca_file = f.name
-        # Every remaining key is an rclone backend option, e.g. type=s3, provider, endpoint, ...
-        env = {f"RCLONE_CONFIG_DST_{k.upper()}": str(v) for k, v in doc.items()}
-        return cls(name=name, bucket=bucket, env=env, ca_cert_file=ca_file)
+        # Every rclone option (type, provider, endpoint, keys, ...) becomes RCLONE_CONFIG_DST_<OPTION>.
+        env = {f"RCLONE_CONFIG_DST_{k.upper()}": str(v) for k, v in (doc.get("rclone") or {}).items()}
+        return cls(name=name, allow=list(doc.get("allow") or []), env=env, ca_cert_file=ca_file)
 
 
 @dataclass
@@ -88,22 +94,21 @@ class TransferRequest:
     requesterId: str
     requesterName: str
     srcPrefix: str
-    dstPrefix: str
-    submittedAt: str
+    target: str  # "<destination>:<bucket>/<path>/" — where this shard lands
+    submittedAt: str = ""
     verify: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
-    destination: str = "destination"
 
     @classmethod
     def parse(cls, raw: str) -> TransferRequest:
         d = json.loads(raw)
-        known = {k: d.pop(k) for k in list(d) if k in cls.__dataclass_fields__ and k not in ("extra", "destination")}
+        known = {k: d.pop(k) for k in list(d) if k in cls.__dataclass_fields__ and k != "extra"}
         return cls(**known, extra=d)
 
     @property
     def route(self) -> str:
         s = settings()
-        return f"source/{s.source_container}/{self.srcPrefix} -> {self.destination}/{self.dstPrefix}"
+        return f"source/{s.source_container}/{self.srcPrefix} -> {self.target}"
 
 
 def _norm_prefix(p: str) -> str:
@@ -229,8 +234,14 @@ def source_manifest(req: TransferRequest) -> dict[str, Any]:
 
 
 def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at=None) -> bool:
+    from .destinations import DestinationError, Target, approved_targets, check_target
+
     s = settings()
-    req.srcPrefix, req.dstPrefix = _norm_prefix(req.srcPrefix), _norm_prefix(req.dstPrefix or req.srcPrefix)
+    req.srcPrefix = _norm_prefix(req.srcPrefix)
+
+    def reject(msg: str, **details) -> bool:
+        ledger.emit(_ev(req, "transfer.rejected", "operate", "Rejected", msg, **details))
+        return True  # handled: a rejection is a business outcome, not a job failure
 
     # 1) authorization at the moment the shard was SUBMITTED (Service Bus enqueue time — stamped by the
     #    service, not by the submitter): the requester must have held an activated transfer-operator role
@@ -240,22 +251,23 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
         s.ctl_scope, req.requesterId, role_guid, req.ticketId, at=submitted_at
     )
     if not activation:
-        ledger.emit(
-            _ev(
-                req,
-                "transfer.rejected",
-                "operate",
-                "Rejected",
-                f"{req.requesterName} held no transfer-operator activation for ticket {req.ticketId} "
-                "when the shard was submitted",
-                submittedAt=iso(submitted_at) if submitted_at else None,
-            )
+        return reject(
+            f"{req.requesterName} held no transfer-operator activation for ticket {req.ticketId} "
+            "when the shard was submitted",
+            submittedAt=iso(submitted_at) if submitted_at else None,
         )
-        return True  # handled: a rejection is a business outcome, not a job failure
 
-    # 2) destination from Key Vault (rotations take effect on the next shard, no redeploy)
-    dest = Destination.from_key_vault(s.dest_secret_uri)
-    req.destination = f"{dest.name}:{dest.bucket}"
+    # 2) destination: must be registered by IT AND inside the scope approved for this ticket
+    approved = approved_targets(activation["properties"].get("justification"))
+    try:
+        target = Target.parse(req.target)
+        dest = Destination.from_key_vault(target.name)
+    except DestinationError as e:
+        return reject(str(e), approvedTargets=[str(a) for a in approved])
+    reason = check_target(target, dest.allow, approved)
+    if reason:
+        return reject(reason, approvedTargets=[str(a) for a in approved], registeredScope=dest.allow)
+
     ledger.emit(
         _ev(
             req,
@@ -265,12 +277,13 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
             f"copy {req.route}",
             key=str(attempt),
             activationRequestId=activation["name"],
-            destination=dest.name,
+            destination=target.name,
+            approvedTargets=[str(a) for a in approved],
         )
     )
 
     src = f"src:{s.source_container}/{req.srcPrefix}"
-    dst = f"dst:{dest.bucket}/{req.dstPrefix}"
+    dst = f"dst:{target.scope}"
 
     # 3) copy
     copy = run_copy(src, dst, dest)
@@ -292,14 +305,15 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
                 "transfer.failed",
                 "operate",
                 "Failed",
-                f"rclone copy exit={copy['exitCode']}: {(copy['errors'] or ['see job log'])[0][:200]} (attempt {attempt})",
+                f"rclone copy exit={copy['exitCode']}: {(copy['errors'] or ['see job log'])[0][:200]} "
+                f"(attempt {attempt})",
                 key=str(attempt),
                 **stats,
             )
         )
         raise RetryableError("rclone copy failed")
 
-    # 4) verify + provenance manifest
+    # 4) verify + provenance manifest (next to the data, in the same bucket)
     if req.verify:
         v = run_check(src, dst, dest)
         manifest = {
@@ -307,14 +321,15 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
             "requestId": req.requestId,
             "requester": {"id": req.requesterId, "name": req.requesterName},
             "route": req.route,
+            "approvedTargets": [str(a) for a in approved],
             "completedAt": iso(utcnow()),
             "copy": {k: stats[k] for k in ("TransfersCompleted", "bytesTransferred", "ElapsedSeconds")},
             "check": {k: v[k] for k in ("matched", "missing", "differ", "errors")},
             "objects": source_manifest(req),
         }
         body = json.dumps(manifest, indent=1)
-        manifest_path = f"_manifests/{req.ticketId}/{req.requestId}.json"
-        _rclone(["rcat", f"dst:{dest.bucket}/{manifest_path}"], dest, stdin=body)
+        manifest_path = f"{target.bucket}/_manifests/{req.ticketId}/{req.requestId}.json"
+        _rclone(["rcat", f"dst:{manifest_path}"], dest, stdin=body)
         ok = v["missing"] == 0 and v["differ"] == 0 and v["errors"] == 0 and v["matched"] > 0
         ledger.emit(
             _ev(
@@ -324,7 +339,7 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
                 "Passed" if ok else "Failed",
                 f"{v['matched']} objects match (size + hash), missing={v['missing']} differ={v['differ']}",
                 **{k: v[k] for k in ("matched", "missing", "differ", "errors", "problems")},
-                manifestObject=f"{req.destination}/{manifest_path}",
+                manifestObject=f"{target.name}:{manifest_path}",
                 manifestSha256=hashlib.sha256(body.encode()).hexdigest(),
             )
         )
@@ -342,6 +357,50 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
         )
     )
     return True
+
+
+def dest_test(name: str) -> int:
+    """Connectivity check for a registered destination: list each allowed bucket, then write,
+    read back and delete a tiny object under the first allowed scope. Result goes to the ledger."""
+    import time
+
+    dest = Destination.from_key_vault(name)
+    checks: list[dict[str, Any]] = []
+
+    def step(label: str, args: list[str], stdin: str | None = None) -> bool:
+        r = _rclone(args, dest, stdin=stdin)
+        err = next((ln for ln in reversed(r.stderr.splitlines()) if ln.strip()), "")
+        checks.append({"step": label, "ok": r.returncode == 0, "error": "" if r.returncode == 0 else err[:300]})
+        return r.returncode == 0
+
+    for scope in dest.allow:
+        step(f"list {scope}", ["lsf", f"dst:{scope}", "--max-depth", "1"])
+    probe = f"{dest.allow[0].rstrip('/')}/_xl-connectivity-test/{int(time.time())}.txt"
+    if step("write probe", ["rcat", f"dst:{probe}"], stdin="cross-ledger connectivity test\n"):
+        step("read probe", ["cat", f"dst:{probe}"])
+        step("delete probe", ["deletefile", f"dst:{probe}"])
+    ok = all(c["ok"] for c in checks)
+    s = settings()
+    Ledger("transfer-worker").emit(
+        LedgerEvent(
+            EventType="destination.tested",
+            Stage="operate",
+            TicketId=f"DEST-{name}",
+            TimeGenerated=iso(utcnow()),
+            EventId=event_id("dest-test", name, os.environ.get("CONTAINER_APP_JOB_EXECUTION_NAME", iso(utcnow()))),
+            ActorId=s.worker_identity,
+            ActorName="transfer-worker",
+            ActorType="ManagedIdentity",
+            Route=f"-> {name}:",
+            Status="Passed" if ok else "Failed",
+            Message=f"destination '{name}': "
+            + ", ".join(f"{c['step']} {'ok' if c['ok'] else 'FAILED'}" for c in checks),
+            Details={"checks": checks, "allow": dest.allow},
+        )
+    )
+    for c in checks:
+        log.info("dest-test %s: %s %s", c["step"], "ok" if c["ok"] else "FAILED", c["error"])
+    return 0 if ok else 1
 
 
 def main() -> int:

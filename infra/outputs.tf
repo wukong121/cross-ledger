@@ -41,6 +41,8 @@ output "cli_env" {
     XL_SOURCE_ACCOUNT_URL = azurerm_storage_account.source.primary_blob_endpoint
     XL_SOURCE_CONTAINER   = azurerm_storage_container.source_datasets.name
     XL_TRANSFER_JOB       = var.enable_managed_transfer ? azapi_resource.job_transfer[0].name : ""
+    XL_KEY_VAULT_ID       = local.key_vault_id
+    XL_KEY_VAULT_URI      = local.key_vault_uri
     XL_VENDOR_JOB         = azapi_resource.job_vendor.name
     XL_LEDGER_ENDPOINT    = var.enable_confidential_ledger ? azurerm_confidential_ledger.this[0].ledger_endpoint : ""
     XL_ROLES              = jsonencode({ for k, r in local.data_roles : k => { scope = r.scope, role = r.role } })
@@ -60,8 +62,7 @@ output "source_public_access" {
 
 output "managed_transfer" {
   value = var.enable_managed_transfer ? {
-    egress_ip          = azurerm_public_ip.egress[0].ip_address
-    key_vault          = azurerm_key_vault.this[0].name
-    destination_secret = local.dest_secret_name
+    egress_ip = azurerm_public_ip.egress[0].ip_address
+    key_vault = azurerm_key_vault.this[0].name
   } : null
 }

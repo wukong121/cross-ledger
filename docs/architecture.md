@@ -74,7 +74,7 @@ flowchart LR
 | **Managed Identity** | 工作负载身份 | 全链路零密钥、零 SAS |
 | **Azure Container Registry** | 镜像仓库 | `az acr build` 在云端构建，本地无需 Docker |
 | **Azure Service Bus**（可选组件）| 托管搬运的请求队列 | 只允许 Entra；原生死信队列、锁续期；KEDA 原生支持 |
-| **Azure Key Vault**（可选组件）| 目的地对象存储的访问凭证 | RBAC 授权、读取全程审计；由网络安全边界治理；轮换凭证无需重新部署 |
+| **Azure Key Vault**（可选组件）| **目的地注册表**：每个目的地的连接信息、凭证和允许范围 | RBAC 授权、读取全程审计；由网络安全边界治理；通过 ARM 管理面注册和列出（不暴露凭证）；更新无需重新部署 |
 | **Azure NAT Gateway**（可选组件）| 搬运 worker 的固定出口 IP | 国内对象存储只需把一个 IP 加入白名单 |
 | **Azure Monitor 告警** | 运维通知 | 台账出现失败、拒绝、校验失败、证据缺失或越权访问时，邮件通知 IT 运维 |
 | **Terraform（azurerm / azuread / azapi）** | 基础设施即代码 | 业界主流的 IaC 工具 |
@@ -99,7 +99,7 @@ flowchart LR
 | CLI 名称 | Azure 角色 | 作用域 | 用途 |
 |---|---|---|---|
 | `source-reader` | Storage Blob Data Reader | 源存储账号 | **rclone 拉取**（场景 A、B），以及抽样查看 |
-| `transfer-operator`（可选）| Azure Service Bus Data Sender | Service Bus 命名空间 | 向托管搬运组件**提交任务**；本身不能读取任何数据 |
+| `transfer-operator`（可选）| Azure Service Bus Data Sender | Service Bus 命名空间 | 向托管搬运组件**提交任务**；本身不能读取任何数据。申请时必须用 `--to` 写明目的地，审批人可见，worker 强制执行 |
 
 PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）：
 
@@ -121,7 +121,7 @@ PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）�
 |---|---|
 | `id-*-collector` | 方案资源组：Reader（读取 PIM 请求）；Log Analytics Reader；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
 | `id-*-vendor`（仅 PoC）| 源：Blob Data Contributor，模拟供应商交付；交付本身记入台账（`dataset.delivered`）|
-| `id-*-transfer`（可选组件）| 源：Blob Data Reader（经 Private Endpoint 读取）；Key Vault：Secrets User（读取目的地凭证）；Service Bus 队列：Data Owner（仅该队列，KEDA 读取队列长度需要）；治理资源组：Reader（校验提交人的 PIM 激活）；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
+| `id-*-transfer`（可选组件）| 源：Blob Data Reader（经 Private Endpoint 读取）；Key Vault：Secrets User（读取目的地注册信息）；Service Bus 队列：Data Owner（仅该队列，KEDA 读取队列长度需要）；治理资源组：Reader（校验提交人的 PIM 激活）；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
 
 ## 5. 数据通道
 
@@ -157,26 +157,42 @@ sequenceDiagram
 
 ### 5.2 可选：托管搬运组件（`enable_managed_transfer = true`）
 
-由平台以**服务身份**无人值守地执行搬运：研发或数据人员只“提交任务”，不接触数据；worker 在 Azure 内经私网读取源数据，用 rclone 写入国内公有云的对象存储。
+由平台以**服务身份**无人值守地执行搬运：数据人员只“提交任务”，不接触数据；worker 在 Azure 内经私网读取源数据，用 rclone 写入国内公有云或本地 IDC 的对象存储。
+
+**目的地怎么指定**：分两层，变化频率和负责人不同。
+
+| 层 | 内容 | 谁维护 | 怎么做 |
+|---|---|---|---|
+| **目的地注册表** | 连接信息（类型、provider、endpoint）、凭证、**允许写入的 bucket/前缀** | **只有 IT 运维**（这是“数据能出到哪里”的合规边界）| `xl dest add <名称> --from-rclone <rclone 远端> --allow <bucket/前缀/>`：直接读取本地 `rclone config` 配好的远端，各云厂商的差异由 rclone 吸收；写入 Key Vault（经 ARM 管理面）|
+| **每次搬运的去向** | 用哪个已注册目的地、写到哪个 bucket / 路径 | 数据人员，**申请时声明、提交时指定** | `xl request transfer-operator --to cloud-x:train-data/2026Q4/`（审批人可见）；`xl transfer --to ...` 或 `--plan plan.yaml` |
+
+一个分片能否执行，worker 会同时检查三件事：提交时刻提交人持有该工单的有效授权；目标在该目的地的**注册范围**内；目标在该工单**已批准的目的地**内。任何一项不满足都会拒绝并告警。CLI 在提交前做同样的预检，只是为了尽早反馈；真正的安全边界在 worker。
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant U as 数据人员（已激活 transfer-operator）
+  participant IT as IT 运维
+  participant U as 数据人员
+  participant P as PIM
   participant Q as Service Bus 队列
   participant W as transfer worker（Container Apps Job，托管身份）
-  participant KV as Key Vault
+  participant KV as Key Vault（目的地注册表）
   participant S as 源 Blob（Private Endpoint）
-  participant D as 国内对象存储（S3 兼容）
+  participant D as 目的地对象存储
   participant L as 台账 + 告警
-  U->>Q: xl transfer -t T-1 -p batch-001/ -p batch-002/（每个前缀一个分片）
+  IT->>KV: xl dest add cloud-x --from-rclone cloud-x --allow train-data/
+  IT->>W: xl dest test cloud-x（从 worker 发起连通性测试，结果写入台账）
+  U->>P: xl request transfer-operator -t T-1 --to cloud-x:train-data/2026Q4/
+  IT->>P: 审批（审批页的理由中可以看到目的地）
+  U->>Q: xl transfer --plan plan.yaml（每个前缀一个分片）
   Q->>W: KEDA 按队列长度触发，多个分片并行执行
-  W->>W: 提交人此刻是否持有工单号 = T-1 的已激活 transfer-operator？否 → transfer.rejected
-  W->>KV: 读取目的地凭证（托管身份；每个分片读取一次，轮换即时生效）
+  W->>P: 提交时刻是否持有工单 T-1 的有效授权？批准了哪些目的地？
+  W->>KV: 读取目的地（连接信息、凭证、注册范围）
+  W->>W: 目标是否同时在注册范围和已批准范围内？否 → transfer.rejected + 告警
   W->>S: rclone 读取（托管身份，私网）
   W->>D: rclone 写入（公网 + TLS，出口为 NAT Gateway 的固定 IP）
-  W->>D: rclone check（逐对象比对大小 + 哈希）；写入 _manifests/T-1/<requestId>.json
-  W->>L: transfer.started / verify.passed / transfer.completed（失败、拒绝时触发告警）
+  W->>D: rclone check 逐对象校验；写入 <bucket>/_manifests/T-1/<requestId>.json
+  W->>L: transfer.started / verify.passed / transfer.completed
 ```
 
 **什么情况下需要它**
@@ -193,12 +209,15 @@ sequenceDiagram
 
 | 特性 | 实现 |
 |---|---|
-| 授权与工单绑定 | worker 在每个分片开始前，通过 ARM 校验提交人持有**同一工单号**的已激活授权，否则拒绝并告警 |
+| 授权与工单绑定 | 以**提交时刻**（Service Bus 入队时间，由服务端生成）判定提交人是否持有同一工单号的已激活授权；排队中的分片不受之后交还权限的影响 |
+| 目的地与审批绑定 | 申请时用 `--to` 声明目的地，写入 PIM 申请理由，审批人可见；worker 只放行落在“注册范围 ∩ 已批准范围”内的分片 |
+| 多目的地、计划文件 | 一个工单可以批准多个目的地；`xl transfer --plan` 用一份 YAML 描述多条路线（前缀 → 目的地），`--dry-run` 先校验 |
+| 连通性测试 | `xl dest test <名称>` 从 worker 本身发起（同一身份、网络和出口 IP）列举、写入、读取、删除探测对象，结果写入台账 |
 | 分片并行、弹性伸缩 | 一个前缀 = 一条消息 = 一次 Job 执行；KEDA 按队列长度并行拉起（`transfer_parallelism`），空闲时缩到 0 |
 | 幂等、可重试 | `rclone copy --checksum` 只传差异；失败的分片自动重试，3 次后进入死信队列并告警 |
 | 端到端校验 | `rclone check --one-way` 逐对象比对大小和哈希；结果写入台账 |
-| 来源证明 | 每个分片在目的地写入 manifest（工单、提交人、路由、对象清单及 MD5），其 SHA-256 记入台账 |
-| 凭证与网络 | 目的地凭证在 Key Vault（NSP 治理、全程审计）；出口经 NAT Gateway 的固定 IP，目的地桶只需放行这一个 IP |
+| 来源证明 | 每个分片在目的地桶中写入 manifest（工单、提交人、路由、已批准的目的地、对象清单及 MD5），其 SHA-256 记入台账 |
+| 凭证与网络 | 目的地凭证在 Key Vault（NSP 治理、读取全程审计），数据团队只能列出目的地名称和范围（Key Vault 管理面 Reader），看不到凭证；出口经 NAT Gateway 的固定 IP，目的地只需放行这一个 IP |
 | 运维告警 | Azure Monitor 定时查询台账，出现 `transfer.failed`、`transfer.rejected`、`verify.failed` 等事件时通知 IT 运维 |
 
 > 为什么提交任务走队列，而不是把 Job 的启动权限给数据人员：Container Apps Job 的 `start` 接口允许调用方**覆盖镜像和命令**，等于让人借用 worker 的托管身份运行任意代码。改为投递队列消息后，人只能“提交任务”，不能改变实际执行的代码。
@@ -262,7 +281,7 @@ flowchart LR
 - 源存储：`shared_access_key_enabled = false`（只认 Entra）、禁止匿名访问、TLS 1.2；网络入口为 Private Endpoint（推荐）或 NSP 白名单，**从不直接开放公网**
 - 治理平面的存储账号：只能通过 Private Endpoint 访问；collector 运行在接入 VNet 的 Container Apps 中
 - Service Bus（可选组件）：`local_auth_enabled = false`（只允许 Entra）
-- Key Vault（可选组件）：RBAC 授权，`publicNetworkAccess = SecuredByPerimeter`，只放行本订阅的托管身份和运维管理 IP；目的地凭证由 IT 运维通过 ARM 管理面写入
+- Key Vault（可选组件）：RBAC 授权，`publicNetworkAccess = SecuredByPerimeter`，只放行本订阅的托管身份和运维管理 IP；目的地由 IT 运维通过 ARM 管理面注册，数据团队只有管理面 Reader（看得到名称和范围，看不到凭证）
 - 容器通过 ARM 控制平面创建，部署者不需要常驻的数据平面权限
 - 镜像使用非 root 用户；ACR 关闭 admin 账号，通过托管身份拉取镜像
 - 生产推荐：Conditional Access 认证上下文（激活时强制 MFA / 合规设备）、锁定 WORM 策略、Defender for Storage
