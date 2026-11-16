@@ -196,6 +196,36 @@ def transfer(
     con.print(f"[green]{len(prefixes)} shard(s) queued[/] — follow with `xl timeline {ticket}`")
 
 
+@app.command("rclone-config")
+def rclone_config(
+    remote: Annotated[str, typer.Option(help="Name of the rclone remote")] = "overseas",
+) -> None:
+    """Print an rclone remote for the source dataset (your own Entra ID via `az`, no keys / SAS).
+
+    Append it to ~/.config/rclone/rclone.conf (or `rclone config file`), then e.g.
+    `rclone copy overseas:datasets/batch-001 ./batch-001 --checksum`.
+    """
+    s = settings()
+    account = s.source_account_url.split("//", 1)[-1].split(".", 1)[0]
+    print(f"[{remote}]\ntype = azureblob\naccount = {account}\nuse_az = true\n")
+    r = s.roles.get("source-reader")
+    if r:
+        guid = r["role"].rsplit("/", 1)[-1].lower()
+        active = [
+            a
+            for a in pim.my_active(r["scope"])
+            if a["properties"]["roleDefinitionId"].lower().endswith(guid)
+            and a["properties"].get("assignmentType") == "Activated"
+            and a["properties"].get("principalId") == me()["oid"]
+        ]
+        msg = (
+            f"# source-reader active until {active[0]['properties'].get('endDateTime')}"
+            if active
+            else "# source-reader NOT active: `xl request source-reader -t <ticket> -r <reason>` first"
+        )
+        con.print(f"[dim]{msg}[/]", highlight=False)
+
+
 # --------------------------------------------------------------------- IT ops --
 
 

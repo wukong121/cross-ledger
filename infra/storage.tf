@@ -39,6 +39,12 @@ resource "azurerm_storage_account" "source" {
     delete_retention_policy { days = 7 }
     container_delete_retention_policy { days = 7 }
   }
+
+  lifecycle {
+    # publicNetworkAccess is owned by perimeter.tf (Disabled | SecuredByPerimeter);
+    # azurerm can only express true/false.
+    ignore_changes = [public_network_access_enabled]
+  }
 }
 
 resource "azurerm_storage_container" "source_datasets" {

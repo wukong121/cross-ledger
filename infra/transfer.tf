@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # Transfer plane: serverless Container Apps Jobs.
-#   job-transfer  : event-driven (KEDA Service Bus scaler); one execution per
+#   job-transfer  : OPTIONAL (enable_managed_transfer); event-driven (KEDA Service Bus scaler); one execution per
 #                   queued shard; runs AzCopy server-to-server + verification.
 #   job-collector : scheduled; turns PIM / Activity / Storage logs into ledger
 #                   events.
@@ -37,8 +37,8 @@ locals {
     { name = "XL_LANDING_ACCOUNT_URL", value = azurerm_storage_account.landing.primary_blob_endpoint },
     { name = "XL_SOURCE_CONTAINER", value = azurerm_storage_container.source_datasets.name },
     { name = "XL_LANDING_CONTAINER", value = azurerm_storage_container.landing_datasets.name },
-    { name = "XL_BUS_NAMESPACE", value = "${azurerm_servicebus_namespace.this.name}.servicebus.windows.net" },
-    { name = "XL_BUS_QUEUE", value = azurerm_servicebus_queue.transfer_requests.name },
+    { name = "XL_BUS_NAMESPACE", value = var.enable_managed_transfer ? "${local.bus_namespace_name}.servicebus.windows.net" : "" },
+    { name = "XL_BUS_QUEUE", value = local.bus_queue_name },
     { name = "XL_STATE_CONTAINER_URL", value = "${azurerm_storage_account.ctl.primary_blob_endpoint}${azurerm_storage_container.state.name}" },
     { name = "XL_AUDIT_CONTAINER_URL", value = "${azurerm_storage_account.audit.primary_blob_endpoint}${azurerm_storage_container.ledger.name}" },
     { name = "XL_DCE_ENDPOINT", value = azurerm_monitor_data_collection_endpoint.this.logs_ingestion_endpoint },
@@ -50,8 +50,9 @@ locals {
     { name = "XL_SCOPES", value = join(",", values(local.rgs)) },
     { name = "XL_SOURCE_SCOPE", value = azurerm_storage_account.source.id },
     { name = "XL_LANDING_SCOPE", value = azurerm_storage_account.landing.id },
-    { name = "XL_CTL_SCOPE", value = azurerm_servicebus_namespace.this.id },
+    { name = "XL_CTL_SCOPE", value = local.bus_namespace_id },
     { name = "XL_OPERATOR_ROLE_ID", value = local.role_ids.bus_sender },
+    { name = "XL_KNOWN_SERVICES", value = jsonencode(var.known_service_principals) },
     { name = "XL_SERVICE_IDENTITIES", value = join(",", [azurerm_user_assigned_identity.transfer.principal_id, azurerm_user_assigned_identity.collector.principal_id, azurerm_user_assigned_identity.vendor.principal_id]) },
   ]
 
@@ -62,6 +63,7 @@ locals {
 }
 
 resource "azapi_resource" "job_transfer" {
+  count     = var.enable_managed_transfer ? 1 : 0
   type      = "Microsoft.App/jobs@2025-01-01"
   name      = "job-${local.name}-transfer"
   parent_id = azurerm_resource_group.gov.id
@@ -94,8 +96,8 @@ resource "azapi_resource" "job_transfer" {
               name = "transfer-requests"
               type = "azure-servicebus"
               metadata = {
-                namespace    = azurerm_servicebus_namespace.this.name
-                queueName    = azurerm_servicebus_queue.transfer_requests.name
+                namespace    = local.bus_namespace_name
+                queueName    = local.bus_queue_name
                 messageCount = "1"
               }
               identity = azurerm_user_assigned_identity.transfer.id
@@ -239,4 +241,9 @@ resource "azapi_resource" "job_vendor" {
     # Jobs live inside the environment: rebuild them whenever it is replaced.
     replace_triggered_by = [azurerm_container_app_environment.this.id]
   }
+}
+
+moved {
+  from = azapi_resource.job_transfer
+  to   = azapi_resource.job_transfer[0]
 }

@@ -101,8 +101,14 @@ def main() -> int:
     sep = sys.argv.index("--")
     name, title, cmd = sys.argv[1], sys.argv[2], sys.argv[sep + 1 :]
     width = int(os.environ.get("CAPTURE_WIDTH", "170"))
-    render(name, title, os.environ.get("CAPTURE_PROMPT") or " ".join(cmd), run(cmd, width),
-           width=width, table=bool(os.environ.get("CAPTURE_TABLE")))
+    render(
+        name,
+        title,
+        os.environ.get("CAPTURE_PROMPT") or " ".join(cmd),
+        run(cmd, width),
+        width=width,
+        table=bool(os.environ.get("CAPTURE_TABLE")),
+    )
     return 0
 
 

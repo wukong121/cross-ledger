@@ -20,16 +20,19 @@ locals {
   }
 
   # What the data team can ask for. Keys are the short names used by the CLI.
-  data_roles = {
+  data_roles = merge(local.base_data_roles, var.enable_managed_transfer ? {
+    transfer-operator = {
+      scope       = local.bus_namespace_id
+      role        = local.role_ids.bus_sender
+      description = "Submit transfer requests (source -> landing)"
+    }
+  } : {})
+
+  base_data_roles = {
     source-reader = {
       scope       = azurerm_storage_account.source.id
       role        = local.role_ids.blob_reader
       description = "Browse / sample the overseas source dataset"
-    }
-    transfer-operator = {
-      scope       = azurerm_servicebus_namespace.this.id
-      role        = local.role_ids.bus_sender
-      description = "Submit transfer requests (source -> landing)"
     }
     landing-writer = {
       scope       = azurerm_storage_account.landing.id

@@ -31,10 +31,9 @@ from .identity import ArmError, credential
 log = logging.getLogger(__name__)
 
 LOOKBACK = timedelta(days=30)
-LOG_LATENCY = timedelta(minutes=15)
-DECISION_GRACE = timedelta(
-    hours=1
-)  # how long to wait for the approver's Activity Log record  # Azure Monitor ingestion latency budget before summarizing a window
+LOG_LATENCY = timedelta(minutes=15)  # Azure Monitor ingestion latency budget before summarizing a window
+DECISION_GRACE = timedelta(hours=1)  # how long to wait for the approver's Activity Log record
+REVOCATION_GRACE = timedelta(minutes=5)  # data-plane RBAC removal propagation after a window closes
 STATE_BLOB = "collector-state.json"
 OK_DEACTIVATION = {"Provisioned", "Revoked", "Granted", "PendingRevocation"}
 ACTIVATED = {"Provisioned", "Revoked", "PendingRevocation", "Granted", "ProvisioningStarted", "AdminApproved"}
@@ -458,6 +457,118 @@ StorageBlobLogs
     return out
 
 
+def audit_gap_events(client: LogsQueryClient, windows: list[Window], state: State) -> list[LedgerEvent]:
+    """Cross-check the two independent observations of the source account.
+
+    * NSPAccessLogs  — what the network perimeter let in (aggregated, with a Count column)
+    * StorageBlobLogs — what the storage service logged (per request, best-effort)
+
+    perimeter reads > 0 and storage reads == 0  -> audit.gap     (evidence missing entirely,
+                                                                   e.g. log delivery blocked)
+    0 < storage reads < perimeter reads          -> audit.partial (storage logs are incomplete;
+                                                                   the perimeter count is the floor)
+    Without this, a broken or lossy log pipeline looks exactly like "the person read less".
+    """
+    now = utcnow()
+    checked: list[str] = state.data.setdefault("evidenceChecked", [])
+    out = []
+    for w in windows:
+        if w.role == "transfer-operator" or w.closed_by == "open" or now < w.end + LOG_LATENCY:
+            continue
+        if w.request_id in checked:
+            continue
+        kql = f"""
+let s = datetime({iso(w.start)}); let e = datetime({iso(w.end)});
+let nsp = NSPAccessLogs
+  | where TimeGenerated between (s .. e) and ResultAction == 'Allowed' and ServiceResourceId =~ '{w.scope}';
+let ips = toscalar(nsp | summarize make_set(SourceIpAddress, 20));
+let storage = StorageBlobLogs
+  | where TimeGenerated between (s .. e) and tolower(AccountName) == '{_account(w.scope)}'
+  | extend ip = tostring(split(CallerIpAddress, ':')[0])
+  | where set_has_element(ips, ip);
+nsp | summarize PerimeterRequests = sum(Count), PerimeterReads = sumif(Count, OperationName == 'GetBlob'),
+                Ips = make_set(SourceIpAddress, 10)
+| extend StorageRequests = toscalar(storage | count),
+         StorageReads = toscalar(storage | where OperationName == 'GetBlob' | count)
+"""
+        try:
+            rows = _query(client, kql, w.start - timedelta(minutes=5), w.end + LOG_LATENCY)
+        except Exception as e:  # no perimeter -> no NSPAccessLogs table
+            log.info("evidence check skipped for %s: %s", w.request_id, type(e).__name__)
+            rows = []
+        checked.append(w.request_id)
+        r = rows[0] if rows else {}
+        p_req, p_reads = int(r.get("PerimeterRequests") or 0), int(r.get("PerimeterReads") or 0)
+        s_req, s_reads = int(r.get("StorageRequests") or 0), int(r.get("StorageReads") or 0)
+        ips = json.loads(r["Ips"]) if isinstance(r.get("Ips"), str) else (r.get("Ips") or [])
+        details = {
+            "requestId": w.request_id,
+            "sourceIps": ips,
+            "perimeterRequests": p_req,
+            "perimeterReads": p_reads,
+            "storageLogRequests": s_req,
+            "storageLogReads": s_reads,
+        }
+        common = dict(
+            TicketId=w.ticket,
+            TimeGenerated=iso(w.end),
+            Origin="collector",
+            ActorId=w.principal_id,
+            ActorName=w.principal_name,
+            ActorType="User",
+            Role=w.role,
+            Scope=w.scope,
+            Details=details,
+        )
+        if p_req > 0 and s_req == 0:
+            out.append(
+                LedgerEvent(
+                    EventType="audit.gap",
+                    Stage="operate",
+                    EventId=event_id(w.request_id, "audit.gap"),
+                    Status="Anomaly",
+                    Message=f"perimeter allowed {p_req} requests ({p_reads} reads) from {', '.join(ips)} during this "
+                    f"window, but the storage account delivered NO access logs — 'who read what' is not evidenced",
+                    **common,
+                )
+            )
+        elif p_reads > s_reads:
+            out.append(
+                LedgerEvent(
+                    EventType="audit.partial",
+                    Stage="operate",
+                    EventId=event_id(w.request_id, "audit.partial"),
+                    Status="Partial",
+                    Message=f"storage logs recorded {s_reads} of {p_reads} blob reads seen at the perimeter — "
+                    f"treat {p_reads} as the lower bound of what was read",
+                    **common,
+                )
+            )
+    del checked[:-2000]
+    return out
+
+
+def classify_access(
+    oid: str, account: str, first: datetime, succeeded: bool, windows: list[Window], known_service: str | None
+) -> tuple[str, str, str, Window | None]:
+    """Classify data-plane access that no activation window covers -> (event type, status, ticket, lag window)."""
+    if not succeeded:
+        return "data.access.denied", "Denied", "UNTICKETED", None
+    lag = next(
+        (
+            w
+            for w in windows
+            if w.principal_id == oid and _account(w.scope) == account and w.end < first <= w.end + REVOCATION_GRACE
+        ),
+        None,
+    )
+    if lag:
+        return "data.accessed.revocation-lag", "Info", lag.ticket, lag
+    if known_service:
+        return "data.accessed.platform-service", "Info", "UNTICKETED", None
+    return "data.accessed.outside-window", "Anomaly", "UNTICKETED", None
+
+
 def anomaly_events(client: LogsQueryClient, windows: list[Window], state: State) -> list[LedgerEvent]:
     s = settings()
     now = utcnow()
@@ -491,30 +602,41 @@ StorageBlobLogs
         )
         if covered:
             continue
-        # All attempts blocked by RBAC -> recorded, low severity. Any success -> data really left without a grant.
+        # All attempts blocked by RBAC -> recorded, low severity. Any success -> data really left without a grant,
+        # unless it is (a) the tail of a just-closed window (RBAC removal takes ~1-3 min to propagate) or
+        # (b) a known platform service (e.g. a data-classification scanner) — both recorded as Info.
         leaked = int(row.get("Succeeded") or 0) > 0
-        etype = "data.accessed.outside-window" if leaked else "data.access.denied"
-        status = "Anomaly" if leaked else "Denied"
+        known = s.known_services.get(oid.lower())
+        etype, status, ticket, lag_window = classify_access(oid, acct, first, leaked, windows, known)
+        who = row.get("RequesterUpn") or (f"{known} ({oid})" if known else oid)
+        if etype == "data.accessed.revocation-lag":
+            msg = (
+                f"{who}: {row['Succeeded']} ops succeeded {int((first - lag_window.end).total_seconds())}s "
+                f"after the {lag_window.role} window closed (RBAC removal still propagating)"
+            )
+        elif etype == "data.accessed.platform-service":
+            msg = f"platform service '{known}' accessed {acct} ({row['Succeeded']}/{row['Operations']} ops succeeded)"
+        elif leaked:
+            msg = (
+                f"{who} accessed {acct} WITHOUT a PIM activation ({row['Succeeded']}/{row['Operations']} ops "
+                "succeeded) — check for standing role assignments"
+            )
+        else:
+            msg = f"{who} tried {acct} without a PIM activation — all {row['Operations']} ops denied"
         out.append(
             LedgerEvent(
                 EventType=etype,
                 Stage="operate",
-                TicketId="UNTICKETED",
+                TicketId=ticket,
                 TimeGenerated=iso(first),
                 EventId=event_id(oid, acct, iso(row["TimeGenerated"]), "outside"),
                 Origin="collector",
                 ActorId=oid,
-                ActorName=row.get("RequesterUpn") or oid,
-                ActorType="User",
+                ActorName=who,
+                ActorType="ServicePrincipal" if known else "User",
                 Scope=accounts.get(acct, acct),
                 Status=status,
-                Message=(
-                    f"{row.get('RequesterUpn') or oid} accessed {acct} WITHOUT a PIM activation "
-                    f"({row['Succeeded']}/{row['Operations']} ops succeeded) — check for standing role assignments"
-                    if leaked
-                    else f"{row.get('RequesterUpn') or oid} tried {acct} without a PIM activation — "
-                    f"all {row['Operations']} ops denied"
-                ),
+                Message=msg,
                 Details={
                     k: (json.loads(v) if isinstance(v, str) and v.startswith("[") else v)
                     for k, v in row.items()
@@ -575,6 +697,7 @@ def main() -> int:
         events += ev
         windows += win
     events += usage_events(client, windows, state)
+    events += audit_gap_events(client, windows, state)
     try:
         events += anomaly_events(client, windows, state)
     except Exception:

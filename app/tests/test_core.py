@@ -42,3 +42,39 @@ def test_transfer_request_parse_keeps_unknown_fields():
     )
     assert r.extra == {"future": 1} and r.verify
     assert _norm_prefix("/a/b") == "a/b/" and _norm_prefix("") == ""
+
+
+def test_classify_access():
+    from crossledger.collector import Window, classify_access
+
+    end = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+    w = Window(
+        "T-1",
+        "alice",
+        "alice@x",
+        "source-reader",
+        "/subscriptions/s/resourceGroups/r/providers/Microsoft.Storage/storageAccounts/src",
+        end - timedelta(hours=1),
+        end,
+        "revoked",
+        "req-1",
+    )
+    after = end + timedelta(minutes=2)
+    assert classify_access("alice", "src", after, False, [w], None)[:3] == (
+        "data.access.denied",
+        "Denied",
+        "UNTICKETED",
+    )
+    assert classify_access("alice", "src", after, True, [w], None)[:3] == (
+        "data.accessed.revocation-lag",
+        "Info",
+        "T-1",
+    )
+    late = end + timedelta(minutes=30)
+    assert classify_access("alice", "src", late, True, [w], None)[0] == "data.accessed.outside-window"
+    assert classify_access("scanner", "src", late, True, [w], "Defender")[:2] == (
+        "data.accessed.platform-service",
+        "Info",
+    )
+    # another account is never covered by this window
+    assert classify_access("alice", "land", after, True, [w], None)[0] == "data.accessed.outside-window"

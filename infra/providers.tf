@@ -38,6 +38,12 @@ provider "azurerm" {
     key_vault {
       purge_soft_delete_on_destroy = true
     }
+    storage {
+      # Everything here is managed through ARM. Skipping data-plane reads keeps
+      # `terraform plan` working when storage is private / perimeter-restricted
+      # and the operator's machine has no network path to the data plane.
+      data_plane_available = false
+    }
   }
 }
 

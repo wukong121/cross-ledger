@@ -164,3 +164,47 @@ variable "eligibility_mode" {
     error_message = "eligibility_mode must be \"group\" or \"user\"."
   }
 }
+
+# ------------------------------------------------------------- public access --
+
+variable "source_public_access" {
+  description = <<-EOT
+    How the source dataset can be reached from outside Azure.
+    "private"   (default, recommended): Private Endpoint only — pair with a cross-border private line.
+    "perimeter": public endpoint governed by a Network Security Perimeter: only perimeter_allowed_ips
+                 (e.g. the egress IPs of the domestic clouds / IDC) may connect, Entra ID auth only.
+  EOT
+  type        = string
+  default     = "private"
+  validation {
+    condition     = contains(["private", "perimeter"], var.source_public_access)
+    error_message = "source_public_access must be \"private\" or \"perimeter\"."
+  }
+}
+
+variable "perimeter_allowed_ips" {
+  description = "Public CIDRs allowed through the perimeter (only used when source_public_access = \"perimeter\")."
+  type        = list(string)
+  default     = []
+}
+
+variable "enable_managed_transfer" {
+  description = <<-EOT
+    Optional managed bulk-transfer component: Service Bus request queue + KEDA-triggered
+    Container Apps Job that copies source -> landing with AzCopy under a service identity.
+    The default data path is self-service rclone pulls with the user's own (PIM-activated)
+    identity, which needs none of this.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "known_service_principals" {
+  description = <<-EOT
+    Object id -> label of platform services that legitimately read data outside PIM windows
+    (e.g. Microsoft Defender for Storage sensitive data discovery). Their access is still recorded
+    in the ledger, as `data.accessed.platform-service` (Info) instead of a high-severity anomaly.
+  EOT
+  type        = map(string)
+  default     = {}
+}
