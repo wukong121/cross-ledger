@@ -61,9 +61,9 @@ resource "azurerm_user_assigned_identity" "transfer" {
   tags                = var.tags
 }
 
-# PoC stand-in for the data supplier's delivery identity.
-resource "azurerm_user_assigned_identity" "vendor" {
-  name                = "id-${local.name}-vendor"
+# PoC only: identity of the job that generates sample source data.
+resource "azurerm_user_assigned_identity" "seed" {
+  name                = "id-${local.name}-seed"
   resource_group_name = azurerm_resource_group.gov.name
   location            = azurerm_resource_group.gov.location
   tags                = var.tags
@@ -111,11 +111,11 @@ locals {
     col_dcr      = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.collector.principal_id }
     col_acr      = { scope = azurerm_container_registry.this.id, role = "AcrPull", principal = azurerm_user_assigned_identity.collector.principal_id }
 
-    # vendor (PoC): simulates the data supplier delivering into the source account
-    ven_src_write = { scope = azurerm_storage_account.source.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.vendor.principal_id }
-    ven_audit     = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.vendor.principal_id }
-    ven_dcr       = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.vendor.principal_id }
-    ven_acr       = { scope = azurerm_container_registry.this.id, role = "AcrPull", principal = azurerm_user_assigned_identity.vendor.principal_id }
+    # seed (PoC): generates sample data in the source account
+    seed_src_write = { scope = azurerm_storage_account.source.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.seed.principal_id }
+    seed_audit     = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.seed.principal_id }
+    seed_dcr       = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.seed.principal_id }
+    seed_acr       = { scope = azurerm_container_registry.this.id, role = "AcrPull", principal = azurerm_user_assigned_identity.seed.principal_id }
 
     # auditors: read the whole ledger (LA) + WORM archive
     aud_logs  = { scope = azurerm_log_analytics_workspace.this.id, role = "Log Analytics Reader", principal = azuread_group.this["auditors"].object_id }

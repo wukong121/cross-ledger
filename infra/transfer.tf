@@ -4,7 +4,7 @@
 #                   queued shard; rclone source -> destination object storage + verification.
 #   job-collector : scheduled; turns PIM / Activity / Storage logs into ledger
 #                   events.
-#   job-vendor    : PoC only; manual; simulates the supplier delivering data.
+#   job-seed      : PoC only; manual; generates sample data in the source account.
 # All run as user-assigned managed identities — no keys, no SAS, no secrets.
 # -----------------------------------------------------------------------------
 
@@ -50,7 +50,7 @@ locals {
     { name = "XL_CTL_SCOPE", value = local.bus_namespace_id },
     { name = "XL_OPERATOR_ROLE_ID", value = local.role_ids.bus_sender },
     { name = "XL_KNOWN_SERVICES", value = jsonencode(var.known_service_principals) },
-    { name = "XL_SERVICE_IDENTITIES", value = join(",", [azurerm_user_assigned_identity.transfer.principal_id, azurerm_user_assigned_identity.collector.principal_id, azurerm_user_assigned_identity.vendor.principal_id]) },
+    { name = "XL_SERVICE_IDENTITIES", value = join(",", [azurerm_user_assigned_identity.transfer.principal_id, azurerm_user_assigned_identity.collector.principal_id, azurerm_user_assigned_identity.seed.principal_id]) },
   ]
 
   registries = local.image_is_placeholder ? [] : [{
@@ -187,9 +187,9 @@ resource "azapi_resource" "job_collector" {
   }
 }
 
-resource "azapi_resource" "job_vendor" {
+resource "azapi_resource" "job_seed" {
   type                 = "Microsoft.App/jobs@2025-01-01"
-  name                 = "job-${local.name}-vendor"
+  name                 = "job-${local.name}-seed"
   parent_id            = azurerm_resource_group.gov.id
   location             = azurerm_resource_group.gov.location
   tags                 = var.tags
@@ -197,7 +197,7 @@ resource "azapi_resource" "job_vendor" {
 
   identity {
     type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.vendor.id]
+    identity_ids = [azurerm_user_assigned_identity.seed.id]
   }
 
   body = {
@@ -210,20 +210,20 @@ resource "azapi_resource" "job_vendor" {
         replicaRetryLimit = 0
         registries = local.image_is_placeholder ? [] : [{
           server   = azurerm_container_registry.this.login_server
-          identity = azurerm_user_assigned_identity.vendor.id
+          identity = azurerm_user_assigned_identity.seed.id
         }]
         manualTriggerConfig = { parallelism = 1, replicaCompletionCount = 1 }
       }
       template = {
         containers = [{
-          name      = "vendor"
+          name      = "seed"
           image     = local.image
           command   = local.image_is_placeholder ? null : ["crossledger", "seed"]
           resources = { cpu = 0.5, memory = "1Gi" }
           env = concat(local.common_env, [
-            { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.vendor.client_id },
+            { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.seed.client_id },
             { name = "XL_SEED_BATCHES", value = var.seed_batches },
-            { name = "XL_SEED_IDENTITY", value = azurerm_user_assigned_identity.vendor.principal_id },
+            { name = "XL_SEED_IDENTITY", value = azurerm_user_assigned_identity.seed.principal_id },
           ])
         }]
       }

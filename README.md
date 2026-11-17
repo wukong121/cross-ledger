@@ -1,7 +1,7 @@
 # cross-ledger
 
-**合规的跨境训练数据获取 + 即时授权 + 端到端台账，基于 Azure 构建。**
-**Compliant cross-border training-data access with just-in-time authorization and an end-to-end audit ledger, built on Azure.**
+**合规的跨境数据回传 + 即时授权 + 端到端台账，基于 Azure 构建。**
+**Compliant cross-border data transfer with just-in-time authorization and an end-to-end audit ledger, built on Azure.**
 
 [中文](#中文) · [English](#english)
 
@@ -11,7 +11,7 @@
 
 ### 解决什么问题
 
-企业从境外数据供应商采购了大规模训练数据（百 TB 级），出于合规考虑先存放在境外的 Azure Blob 中。境内的研发团队在国内公有云和本地 IDC 上训练，需要**合规地**获取这些数据：
+企业在海外有业务数据（存放在海外 Azure 区域的 Blob Storage 中），需要**合规地**传输回国内，供国内公有云和本地 IDC 上的团队使用：
 
 1. **数据获取**：研发在国内公有云开发机 / 开发容器里按需拉取；数据团队把数据批量搬到国内云的对象存储
 2. **身份与权限**：IT 运维持有 Owner；研发/算法/数据团队**按需申请**后才能读取，用完收回
@@ -42,7 +42,7 @@ flowchart LR
 ```bash
 cp infra/terraform.tfvars.example infra/terraform.tfvars   # 订阅、区域、人员 UPN、网络模式
 ./scripts/deploy.sh                                        # 基础设施 + 镜像 + Job，约 15 分钟
-./scripts/seed-data.sh                                     # 模拟供应商交付样例数据
+./scripts/seed-data.sh                                     # 生成样例数据
 
 cd app
 uv run xl request source-reader -t DT-0001 -r "拉取 batch-001" --hours 2   # 研发 / 数据
@@ -64,7 +64,7 @@ uv run xl ledger-verify DT-0001                                             # �
 | [docs/rclone.md](docs/rclone.md) | 研发与数据团队用 rclone 取数的指南 |
 | [docs/runbook.md](docs/runbook.md) | 按角色的操作流程：申请 → 审批 → 操作 → 收回 → 审计，以及故障处理 |
 | [docs/deployment.md](docs/deployment.md) | 前置条件、全部配置项、部署 / 更新 / 清理、PoC 模拟环境 |
-| [docs/production.md](docs/production.md) | 网络阶段规划、300 TB 吞吐估算、成本构成、加固清单 |
+| [docs/production.md](docs/production.md) | 网络阶段规划、吞吐估算、成本构成、加固清单 |
 
 ### 仓库结构
 
@@ -81,9 +81,9 @@ docs/       文档
 
 ### Problem
 
-An organization bought a large training dataset (hundreds of TB) from an overseas vendor. For compliance it sits in Azure Blob Storage in an overseas region. Its researchers train on domestic public-cloud dev machines / containers and on-prem clusters, and need **compliant** access:
+An organization has business data overseas, in Azure Blob Storage in an overseas region, that must be brought back **compliantly** for teams working on domestic public-cloud dev machines / containers and on-prem infrastructure:
 
-1. **Data access**: researchers pull on demand into dev machines / containers; the data team bulk-copies into domestic S3-compatible object storage.
+1. **Data access**: engineers pull on demand into dev machines / containers; the data team bulk-copies into domestic S3-compatible object storage.
 2. **Identity & access**: IT ops are Owners; R&D and data staff **request** read access just-in-time and lose it afterwards.
 3. **Ledger**: every lifecycle step (**request → approve → operate → revoke**) is recorded per event and per ticket, and is tamper-evident.
 

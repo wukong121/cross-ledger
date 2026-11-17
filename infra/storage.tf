@@ -19,7 +19,7 @@ locals {
 
 }
 
-# Overseas source — where the purchased dataset is delivered by the vendor.
+# Overseas source — the business data to be transferred.
 resource "azurerm_storage_account" "source" {
   name                            = "${local.sa_name}src"
   resource_group_name             = azurerm_resource_group.source.name

@@ -6,9 +6,9 @@
 
 | 维度 | 约束 |
 |---|---|
-| 数据 | 从境外第三方数据供应商采购的训练数据，首批约 **300 TB**，后续持续增量 |
-| 现状 | 出于合规考虑，数据暂存在**境外 Azure 区域**的 Blob Storage |
-| 目标 | 合规地回传到**境内**训练算力：国内公有云 + 本地 IDC |
+| 数据 | 企业在海外的业务数据，规模可达数百 TB，并持续增量 |
+| 现状 | 数据位于**海外 Azure 区域**的 Blob Storage |
+| 目标 | 合规地传输回**国内**：国内公有云 + 本地 IDC |
 | 使用方式 | ① 研发在国内公有云开发机 / 开发容器里**按需拉取**；② 数据团队把数据**批量搬运**到国内云对象存储 |
 | 权限 | IT 运维持有 Owner；研发/算法/数据团队**向 IT 申请**后才能读写/搬运数据 |
 | 审计 | 以**事件**为单位留存完整台账：申请 → 审批 → 操作 → 收回，按数据链路可追溯 |
@@ -107,7 +107,7 @@ PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）�
 - 激活必须填写**理由**和**工单号**（工单号就是台账的主键）
 - 单次激活最长 `max_activation_hours`（默认 8 小时），到期自动收回；PIM 规定激活后至少 5 分钟才能主动交还
 - 资格本身也有有效期（默认 180 天），到期需要重新认证
-- 300 TB 级别的批量搬运可能超过单次时长：建议为数据团队单独配置一个时长更长（例如 72 小时）、同样需要审批的批量搬运角色，到期重新申请作为兜底（rclone 会跳过已传完的对象）
+- 数百 TB 级别的批量搬运可能超过单次时长：建议为数据团队单独配置一个时长更长（例如 72 小时）、同样需要审批的批量搬运角色，到期重新申请作为兜底（rclone 会跳过已传完的对象）
 
 ### 4.3 为什么 rclone 用“本人身份”
 
@@ -120,7 +120,7 @@ PIM 策略（Terraform `azurerm_role_management_policy`，每个角色一份）�
 | 托管身份 | 权限 |
 |---|---|
 | `id-*-collector` | 方案资源组：Reader（读取 PIM 请求）；Log Analytics Reader；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
-| `id-*-vendor`（仅 PoC）| 源：Blob Data Contributor，模拟供应商交付；交付本身记入台账（`dataset.delivered`）|
+| `id-*-seed`（仅 PoC）| 源：Blob Data Contributor，用于生成样例数据；生成过程记入台账（`dataset.loaded`）|
 | `id-*-transfer`（可选组件）| 源：Blob Data Reader（经 Private Endpoint 读取）；Key Vault：Secrets User（读取目的地注册信息）；Service Bus 队列：Data Owner（仅该队列，KEDA 读取队列长度需要）；治理资源组：Reader（校验提交人的 PIM 激活）；审计归档追加写入；Confidential Ledger Contributor；DCR 写入 |
 
 ## 5. 数据通道
@@ -201,7 +201,7 @@ sequenceDiagram
 |---|---|
 | **源数据不允许暴露公网** | worker 在 Azure 内经 Private Endpoint 读取，源存储保持完全私有，不需要为国内环境打开任何入口（NSP 公网模式也不需要）|
 | **人不应接触数据** | 数据团队只需要“提交任务”的权限（`transfer-operator`），自始至终没有读取数据的权限；数据只在 worker 中流过 |
-| **长时间、无人值守的批量搬运** | 300 TB 首批和后续增量可能持续数天，不依赖个人的登录会话、电脑或单次授权时长 |
+| **长时间、无人值守的批量搬运** | 首批全量和后续增量可能持续数天，不依赖个人的登录会话、电脑或单次授权时长 |
 | **不想在国内维护搬运机** | 国内侧只需要一个对象存储桶；计算、并发、重试都在 Azure 上按执行计费 |
 | **凭证集中管理** | 目的地的访问密钥只存在 Key Vault 中，不分发到个人电脑或开发容器 |
 
@@ -243,7 +243,7 @@ sequenceDiagram
 | `approve` | `access.approved` / `access.denied` | 审批人、时间、审批意见（来自 Activity Log 的 PIM 审批事件）|
 | `approve` | `access.activated` | 授权生效（窗口起止）|
 | `approve` | `rbac.changed`（异常）| Activity Log：在 PIM 之外改动了常驻 RBAC |
-| `operate` | `dataset.delivered` | 供应商交付（PoC 中由 vendor Job 模拟），数据来源的起点 |
+| `operate` | `dataset.loaded` | 源数据写入（PoC 中由 seed Job 生成样例数据），数据来源的起点 |
 | `operate` | `data.accessed` | collector：授权窗口关闭后，从存储服务端日志汇总此人在窗口内的全部操作（读/写/删次数、对象数、字节数、对象样本、**来源 IP**）|
 | `operate` | `data.accessed.outside-window`（**高危异常**）| 有人在没有激活授权的情况下**成功**访问了数据，说明存在 PIM 之外的常驻数据角色 |
 | `operate` | `data.access.denied`（低危）| 有人在没有激活授权的情况下尝试访问数据，被 RBAC 拒绝 |

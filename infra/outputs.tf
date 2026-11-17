@@ -21,7 +21,7 @@ output "groups" {
 output "jobs" {
   value = {
     transfer  = var.enable_managed_transfer ? azapi_resource.job_transfer[0].name : null
-    vendor    = azapi_resource.job_vendor.name
+    seed      = azapi_resource.job_seed.name
     collector = azapi_resource.job_collector.name
   }
 }
@@ -43,7 +43,7 @@ output "cli_env" {
     XL_TRANSFER_JOB       = var.enable_managed_transfer ? azapi_resource.job_transfer[0].name : ""
     XL_KEY_VAULT_ID       = local.key_vault_id
     XL_KEY_VAULT_URI      = local.key_vault_uri
-    XL_VENDOR_JOB         = azapi_resource.job_vendor.name
+    XL_SEED_JOB           = azapi_resource.job_seed.name
     XL_LEDGER_ENDPOINT    = var.enable_confidential_ledger ? azurerm_confidential_ledger.this[0].ledger_endpoint : ""
     XL_ROLES              = jsonencode({ for k, r in local.data_roles : k => { scope = r.scope, role = r.role } })
   }

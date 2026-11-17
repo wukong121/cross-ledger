@@ -14,7 +14,7 @@ variable "prefix" {
 }
 
 variable "source_location" {
-  description = "Region of the overseas source data (where the purchased dataset is stored)."
+  description = "Region of the overseas source data (where the business data is stored)."
   type        = string
 }
 
@@ -137,7 +137,7 @@ variable "vnet_cidr" {
 }
 
 variable "seed_batches" {
-  description = "PoC only: synthetic dataset batches the vendor-delivery job writes into the source account."
+  description = "PoC only: synthetic dataset batches the seed job writes into the source account."
   type        = string
   default     = "batch-001,batch-002,batch-003"
 }

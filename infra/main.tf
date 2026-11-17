@@ -21,7 +21,7 @@ locals {
 }
 
 # Two resource groups = two blast radii with separate RBAC:
-#   source  : the purchased dataset
+#   source  : the business data overseas
 #   gov     : transfer plane + governance / audit plane
 resource "azurerm_resource_group" "source" {
   name     = "rg-${local.name}-source"

@@ -621,7 +621,7 @@ def collect() -> None:
 
 @app.command(hidden=True)
 def seed() -> None:
-    """(job) PoC: simulate the vendor delivering a dataset into the source account."""
+    """(job) PoC: generate a sample dataset in the source account."""
     from . import seed as sd
 
     raise typer.Exit(sd.main())

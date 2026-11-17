@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars (git-ignored) and fill in.
 subscription_id  = "00000000-0000-0000-0000-000000000000"
 
-# Overseas side: where the purchased dataset lives.
+# Overseas side: where the business data lives.
 source_location  = "<overseas-region>"
 # Confidential Ledger is only available in some regions; leave null to use source_location.
 # confidential_ledger_location = "<ledger-region>"

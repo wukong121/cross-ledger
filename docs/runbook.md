@@ -1,6 +1,6 @@
 # 操作手册（Runbook）：一个工单的完整生命周期
 
-> 以工单 `DT-2026-0001`（“v3 预训练：拉取 batch-001，并把 batch-002 搬到国内对象存储”）为例，按角色分步说明。
+> 以工单 `DT-2026-0001`（“Q4 数据分析：拉取 batch-001，并把 batch-002 搬到国内对象存储”）为例，按角色分步说明。
 >
 > - `xl` 命令在仓库的 `app/` 目录下执行（`uv run xl ...`），也可以先安装（`uv tool install ./app`），之后直接用 `xl ...`。需要仓库根目录有 `.xl.env`，并已用自己的账号 `az login`
 > - rclone 的详细用法见 [rclone.md](rclone.md)
@@ -40,7 +40,7 @@ transfer-operator  sb-xlab12     yes       -        # 仅启用托管搬运组�
 
 ```bash
 uv run xl request source-reader -t DT-2026-0001 \
-  -r "v3 预训练：拉取 batch-001，搬运 batch-002 到国内对象存储" --hours 4
+  -r "Q4 数据分析：拉取 batch-001，搬运 batch-002 到国内对象存储" --hours 4
 # request 6f0c...  status=PendingApprovalProvisioning  ticket=DT-2026-0001
 ```
 
@@ -56,7 +56,7 @@ uv run xl request source-reader -t DT-2026-0001 \
 
 ```bash
 uv run xl approvals
-uv run xl approve -t DT-2026-0001 -r "已核对采购合同与出入境评估"
+uv run xl approve -t DT-2026-0001 -r "已核对数据许可与出入境评估"
 uv run xl deny    -t DT-2026-0001 -r "缺少数据分类结果"
 ```
 

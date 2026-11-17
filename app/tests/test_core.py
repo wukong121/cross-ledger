@@ -177,8 +177,8 @@ def test_targets_scope_and_approval_binding():
     assert not in_scope(Target.parse("cloud-x:eval-data/2025/"), allow)
     assert not in_scope(Target.parse("cloud-x:train-data-copy/"), allow)  # prefix of a bucket name is not enough
 
-    j = with_targets("v3 pretraining", [Target.parse("cloud-x:train-data/2026Q4/"), Target.parse("idc:datasets/")])
-    assert j == "v3 pretraining | to: cloud-x:train-data/2026Q4/, idc:datasets/"
+    j = with_targets("Q4 analytics", [Target.parse("cloud-x:train-data/2026Q4/"), Target.parse("idc:datasets/")])
+    assert j == "Q4 analytics | to: cloud-x:train-data/2026Q4/, idc:datasets/"
     approved = approved_targets(j)
     assert [str(a) for a in approved] == ["cloud-x:train-data/2026Q4/", "idc:datasets/"]
 

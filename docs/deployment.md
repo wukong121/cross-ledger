@@ -50,7 +50,7 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars   # 该文件已被 .gi
 | `ledger_retention_days` | `2555` | WORM 保留期（约 7 年）|
 | `ledger_immutability_locked` | `false` | 锁定 WORM 策略。**锁定后不可逆**，PoC 请保持 `false` |
 | `vnet_cidr` | `10.60.0.0/16` | 方案 VNet 的地址空间（/23 给 Container Apps，/24 给 Private Endpoint）|
-| `seed_batches` | `batch-001,batch-002,batch-003` | PoC：vendor Job 生成的样例批次 |
+| `seed_batches` | `batch-001,batch-002,batch-003` | PoC：seed Job 生成的样例批次 |
 | `eligibility_mode` | `group` | `group` = 资格授予 data-team 组（推荐，增删人员无需重新部署；但 PIM 识别新加入的成员可能有较长延迟）；`user` = 资格展开到每个成员，立即生效 |
 | `log_retention_days` | `90` | Log Analytics 交互式保留期 |
 | `ledger_table_total_retention_days` | `2556` | `XLedger_CL` 的总保留期（含长期保留）|
@@ -73,7 +73,7 @@ az account set -s <subscription-id>
 部署完成后：
 
 ```bash
-./scripts/seed-data.sh      # 运行 vendor Job（在 VNet 内，用供应商托管身份）在源账号中生成样例批次
+./scripts/seed-data.sh      # 运行 seed Job（在 VNet 内，用专用托管身份）在源账号中生成样例批次
 cd app && uv run xl roles   # 检查自己的资格
 ```
 
@@ -84,7 +84,7 @@ cd app && uv run xl roles   # 检查自己的资格
 | 资源组 | 资源 |
 |---|---|
 | `rg-<prefix>-<sfx>-source` | 源存储账号 `<prefix><sfx>src`（容器 `datasets`，开启版本控制与软删除）|
-| `rg-<prefix>-<sfx>-gov` | VNet `vnet-*`（`snet-cae` 子网接入 Container Apps，`snet-pe` 子网放 4 个 Blob Private Endpoint）+ Private DNS `privatelink.blob.core.windows.net` · 控制账号 `<prefix><sfx>ctl`（容器 `collector-state`）· 审计账号 `<prefix><sfx>audit`（WORM 容器 `ledger`）· Log Analytics `log-*` · DCE/DCR · Confidential Ledger `acl-*` · ACR · Container Apps 环境 `cae-*` · Job `job-*-collector` / `job-*-vendor`（PoC）· 托管身份 · Workbook · `perimeter` 模式下的 NSP `nsp-*` · 告警规则 `alert-*-ledger` · 可选组件：Service Bus `sb-*`、Job `job-*-transfer`、Key Vault `kv-*`、NAT Gateway `ng-*` + 固定公网 IP `pip-*-egress` |
+| `rg-<prefix>-<sfx>-gov` | VNet `vnet-*`（`snet-cae` 子网接入 Container Apps，`snet-pe` 子网放 4 个 Blob Private Endpoint）+ Private DNS `privatelink.blob.core.windows.net` · 控制账号 `<prefix><sfx>ctl`（容器 `collector-state`）· 审计账号 `<prefix><sfx>audit`（WORM 容器 `ledger`）· Log Analytics `log-*` · DCE/DCR · Confidential Ledger `acl-*` · ACR · Container Apps 环境 `cae-*` · Job `job-*-collector` / `job-*-seed`（PoC）· 托管身份 · Workbook · `perimeter` 模式下的 NSP `nsp-*` · 告警规则 `alert-*-ledger` · 可选组件：Service Bus `sb-*`、Job `job-*-transfer`、Key Vault `kv-*`、NAT Gateway `ng-*` + 固定公网 IP `pip-*-egress` |
 | Entra ID | 安全组 `<prefix>-it-ops-<sfx>`、`<prefix>-data-team-<sfx>`、`<prefix>-auditors-<sfx>` |
 | PIM | 每个数据角色一份角色管理策略 + 资格分配（`source-reader`；启用托管搬运时还有 `transfer-operator`）|
 | 订阅 | 诊断设置：Activity Log → Log Analytics |
