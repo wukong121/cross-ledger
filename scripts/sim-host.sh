@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PoC ONLY — create / delete a "domestic environment" simulation host.
 #
-# Plays the role of (A) a dev container on a domestic cloud ML platform and
+# Plays the role of (A) a domestic public-cloud dev machine / dev container and
 # (B) a data team's transfer host. It is deliberately NOT part of the solution's
 # IaC and NOT connected to the solution network:
 #   * its own resource group + VNet, no peering

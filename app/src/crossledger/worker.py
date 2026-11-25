@@ -53,17 +53,26 @@ class Destination:
         from azure.core.exceptions import ResourceNotFoundError
         from azure.keyvault.secrets import SecretClient
 
-        from .destinations import NAME_RE, SECRET_PREFIX, DestinationError
+        from .destinations import NAME_RE, SECRET_PREFIX, DestinationError, doc_from_secret
 
         if not NAME_RE.match(name):
             raise DestinationError(f"invalid destination name {name!r}")
         try:
-            sec = SecretClient(settings().key_vault_uri, credential()).get_secret(f"{SECRET_PREFIX}{name}")
+            client = SecretClient(settings().key_vault_uri, credential())
+            sec = client.get_secret(f"{SECRET_PREFIX}{name}")
         except ResourceNotFoundError as e:
             raise DestinationError(f"destination '{name}' is not registered") from e
         if sec.properties.enabled is False:
             raise DestinationError(f"destination '{name}' is retired")
-        return cls.from_dict(name, json.loads(sec.value))
+        doc = doc_from_secret(sec.value or "", sec.properties.tags or {})
+        if not doc.get("ca_cert_pem"):
+            try:
+                ca = client.get_secret(f"{SECRET_PREFIX}{name}-ca")
+                if ca.properties.enabled is not False and ca.value:
+                    doc["ca_cert_pem"] = ca.value
+            except ResourceNotFoundError:
+                pass
+        return cls.from_dict(name, doc)
 
     @classmethod
     def from_dict(cls, name: str, doc: dict[str, Any]) -> Destination:
@@ -164,13 +173,24 @@ def _rclone(args: list[str], dest: Destination, stdin: str | None = None) -> sub
     return subprocess.run(cmd, env=_rclone_env(dest), input=stdin, capture_output=True, text=True)
 
 
-def run_copy(src: str, dst: str, dest: Destination) -> dict[str, Any]:
+def trace_id(req: TransferRequest) -> str:
+    """Stamped on every storage request of a shard as x-ms-client-request-id, so the source account's
+    own access log (StorageBlobLogs.ClientRequestId) names the ticket and shard."""
+    return f"xl:{req.ticketId}:{req.requestId}"
+
+
+def _trace(trace: str) -> list[str]:
+    return ["--header", f"x-ms-client-request-id: {trace}"] if trace else []
+
+
+def run_copy(src: str, dst: str, dest: Destination, trace: str = "") -> dict[str, Any]:
     transfers = os.environ.get("XL_RCLONE_TRANSFERS", "16")
     res = _rclone(
         [
             "copy",
             src,
             dst,
+            *_trace(trace),
             "--checksum",
             "--transfers",
             transfers,
@@ -202,9 +222,9 @@ def run_copy(src: str, dst: str, dest: Destination) -> dict[str, Any]:
     return {"exitCode": res.returncode, "stats": stats, "errors": errors[:10]}
 
 
-def run_check(src: str, dst: str, dest: Destination) -> dict[str, Any]:
+def run_check(src: str, dst: str, dest: Destination, trace: str = "") -> dict[str, Any]:
     """rclone check --one-way: every source object must exist at the destination with the same size + hash."""
-    res = _rclone(["check", src, dst, "--one-way", "--combined", "-"], dest)
+    res = _rclone(["check", src, dst, "--one-way", "--combined", "-", *_trace(trace)], dest)
     counts = {"=": 0, "-": 0, "*": 0, "!": 0}
     problems = []
     for line in res.stdout.splitlines():
@@ -268,6 +288,22 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
     if reason:
         return reject(reason, approvedTargets=[str(a) for a in approved], registeredScope=dest.allow)
 
+    return execute(
+        req,
+        ledger,
+        attempt,
+        dest,
+        target,
+        {"activationRequestId": activation["name"], "approvedTargets": [str(a) for a in approved]},
+    )
+
+
+def execute(
+    req: TransferRequest, ledger: Ledger, attempt: int, dest: Destination, target, authorization: dict[str, Any]
+) -> bool:
+    """copy -> check -> manifest -> ledger, for a request that has already been authorized.
+    `authorization` (what allowed this shard) goes into the started event and the manifest."""
+    s = settings()
     ledger.emit(
         _ev(
             req,
@@ -276,9 +312,8 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
             "Running",
             f"copy {req.route}",
             key=str(attempt),
-            activationRequestId=activation["name"],
             destination=target.name,
-            approvedTargets=[str(a) for a in approved],
+            **authorization,
         )
     )
 
@@ -286,7 +321,7 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
     dst = f"dst:{target.scope}"
 
     # 3) copy
-    copy = run_copy(src, dst, dest)
+    copy = run_copy(src, dst, dest, trace=trace_id(req))
     st = copy["stats"]
     stats = {
         "exitCode": copy["exitCode"],
@@ -315,13 +350,13 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
 
     # 4) verify + provenance manifest (next to the data, in the same bucket)
     if req.verify:
-        v = run_check(src, dst, dest)
+        v = run_check(src, dst, dest, trace=trace_id(req))
         manifest = {
             "ticketId": req.ticketId,
             "requestId": req.requestId,
             "requester": {"id": req.requesterId, "name": req.requesterName},
             "route": req.route,
-            "approvedTargets": [str(a) for a in approved],
+            "authorization": authorization,
             "completedAt": iso(utcnow()),
             "copy": {k: stats[k] for k in ("TransfersCompleted", "bytesTransferred", "ElapsedSeconds")},
             "check": {k: v[k] for k in ("matched", "missing", "differ", "errors")},
@@ -331,6 +366,12 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
         manifest_path = f"{target.bucket}/_manifests/{req.ticketId}/{req.requestId}.json"
         _rclone(["rcat", f"dst:{manifest_path}"], dest, stdin=body)
         ok = v["missing"] == 0 and v["differ"] == 0 and v["errors"] == 0 and v["matched"] > 0
+        req.extra["result"] = {
+            "matched": v["matched"],
+            "missing": v["missing"],
+            "differ": v["differ"],
+            "manifest": f"{target.name}:{manifest_path}",
+        }
         ledger.emit(
             _ev(
                 req,
@@ -356,7 +397,172 @@ def process(req: TransferRequest, ledger: Ledger, attempt: int = 1, submitted_at
             **stats,
         )
     )
+    req.extra.setdefault("result", {}).update(
+        {"files": stats["TransfersCompleted"], "bytes": stats["bytesTransferred"]}
+    )
     return True
+
+
+def _size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return str(n)
+
+
+def completion_message(serial: str, dataset: str, target: str, ticket: str, result: dict[str, Any]) -> str:
+    """Bot message to the applicant once the data has landed: where to look and what was verified."""
+    lines = [
+        f"✅ 数据回传申请 {serial} 已完成，请到目的地检查数据",
+        f"数据集：{dataset}",
+        f"目的地：{target}",
+    ]
+    if "matched" in result:
+        copied = result.get("files")
+        if copied is not None and int(copied) < int(result["matched"]):
+            lines.append(
+                f"文件：{result['matched']} 个（本次新传 {copied} 个、{_size(int(result.get('bytes') or 0))}，"
+                "其余在目的地已存在且一致），已逐个校验大小和哈希，全部一致"
+            )
+        else:
+            lines.append(
+                f"文件：{result['matched']} 个"
+                + (f"，{_size(int(result['bytes']))}" if result.get("bytes") is not None else "")
+                + "，已逐个校验大小和哈希，全部一致"
+            )
+    if result.get("manifest"):
+        lines.append(f"来源证明（文件清单 + MD5）：{result['manifest']}")
+    lines.append(f"工单号：{ticket}")
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ ticket intake --
+
+
+def _destination_info(name: str) -> dict[str, Any] | None:
+    from .destinations import DestinationError
+
+    try:
+        d = Destination.from_key_vault(name)
+    except DestinationError:
+        return None
+    return {"enabled": True, "root": d.allow[0] if d.allow else ""}
+
+
+def process_ticket(instance_code: str, ledger: Ledger, attempt: int = 1, fs=None, markers=None) -> bool:
+    """Shard from an approval ticket. Everything (dataset, destination, applicant, approver) is
+    re-derived from the live instance — the queue message only names the instance."""
+    from . import tickets as tk
+    from .destinations import Target
+    from .feishu import EmailCache
+    from .feishu import client as feishu_client
+    from .markers import Markers
+
+    s = settings()
+    fs = fs or feishu_client()
+    markers = markers or Markers()
+    doc = fs.get_instance(instance_code) or {"instance_code": instance_code, "status": "DELETED"}
+    t = tk.parse_instance(doc, s.feishu_fields)
+    emails = EmailCache(fs)
+    ds = s.datasets.get(t.dataset) or {}
+    req = TransferRequest(
+        requestId=tk.request_id(t),
+        ticketId=instance_code,
+        requesterId=t.applicant,
+        requesterName=emails(t.applicant) if t.applicant else "",
+        srcPrefix=_norm_prefix(ds.get("prefix", "")),
+        target="",
+        extra={"serial": t.serial, "dataset": t.dataset, "destination": t.destination},
+    )
+
+    if t.status != tk.APPROVED:
+        ledger.emit(
+            _ev(req, "ticket.withdrawn", "close", "Withdrawn", f"ticket is {t.status} — shard not started", key="pre")
+        )
+        return True
+
+    decision = tk.evaluate(
+        t,
+        approver_emails=set(s.approver_emails),
+        email_of=emails,
+        datasets=s.datasets,
+        destination=_destination_info,
+    )
+    if not decision.ok:
+        ledger.emit(_ev(req, "transfer.rejected", "operate", "Rejected", decision.reason, serial=t.serial))
+        fs.notify(t.applicant, f"数据回传申请 {t.serial} 未执行：{decision.reason}")
+        return True
+
+    dest = Destination.from_key_vault(t.destination)
+    req.target = tk.target_for(t, dest.allow[0])
+    target = Target.parse(req.target)
+    markers.put(f"transfer/{instance_code}/started", {"requestId": req.requestId, "at": iso(utcnow())})
+    ok = execute(
+        req,
+        ledger,
+        attempt,
+        dest,
+        target,
+        {
+            "serial": t.serial,
+            "dataset": t.dataset,
+            "approver": decision.approver_email,
+            "approverId": decision.approver,
+            "purpose": t.purpose,
+        },
+    )
+    if not ok:
+        fs.notify(
+            t.applicant,
+            f"⚠️ 数据回传申请 {t.serial} 搬运后校验未通过（目的地：{req.target}），IT 已收到告警，请暂勿使用该数据。",
+        )
+        return False
+
+    after = fs.get_instance(instance_code) or {"status": "DELETED"}
+    if after.get("status") != tk.APPROVED:
+        ledger.emit(
+            _ev(
+                req,
+                "ticket.withdrawn.after-start",
+                "close",
+                "Anomaly",
+                f"ticket became {after.get('status')} after the transfer started — data already at {req.target}",
+            )
+        )
+        fs.notify(
+            t.applicant,
+            f"⚠️ 数据回传申请 {t.serial} 在搬运过程中被撤回，数据已送达 {req.target}，IT 会与你确认后续处理。",
+        )
+    else:
+        ledger.emit(_ev(req, "ticket.closed", "close", "Closed", f"delivered to {req.target}"))
+        fs.notify(
+            t.applicant,
+            completion_message(t.serial, t.dataset, req.target, instance_code, req.extra.get("result", {})),
+        )
+    return True
+
+
+def handle_message(raw: str, ledger: Ledger, attempt: int = 1, submitted_at=None) -> bool:
+    """Dispatch one queue message. Raises ValueError for malformed messages."""
+    body = json.loads(raw)
+    if body.get("kind") == "ticket":
+        if not body.get("instanceCode"):
+            raise ValueError("ticket message without instanceCode")
+        return process_ticket(body["instanceCode"], ledger, attempt)
+    req = TransferRequest.parse(raw)
+    if not settings().self_service:
+        ledger.emit(
+            _ev(
+                req,
+                "transfer.rejected",
+                "operate",
+                "Rejected",
+                "self-service submissions are disabled — transfers start from an approved ticket only",
+            )
+        )
+        return True
+    return process(req, ledger, attempt=attempt, submitted_at=submitted_at)
 
 
 def dest_test(name: str) -> int:
@@ -419,15 +625,28 @@ def main() -> int:
         msg = msgs[0]
         attempt = msg.delivery_count + 1  # delivery_count counts *previous* deliveries
         ledger = Ledger("transfer-worker")
+        raw = str(msg)
         try:
-            req = TransferRequest.parse(str(msg))
+            body = json.loads(raw)
+            req = (
+                TransferRequest(
+                    requestId=msg.message_id or "",
+                    ticketId=body.get("instanceCode", ""),
+                    requesterId="",
+                    requesterName="",
+                    srcPrefix="",
+                    target="",
+                )
+                if body.get("kind") == "ticket"
+                else TransferRequest.parse(raw)
+            )
         except Exception as e:  # malformed request: park it, never retry
             rx.dead_letter_message(msg, reason="malformed", error_description=str(e)[:1000])
             log.error("malformed message %s: %s", msg.message_id, e)
             return 1
 
         try:
-            ok = process(req, ledger, attempt=attempt, submitted_at=msg.enqueued_time_utc)
+            ok = handle_message(raw, ledger, attempt=attempt, submitted_at=msg.enqueued_time_utc)
         except Exception as e:
             if not isinstance(e, RetryableError):
                 log.exception("transfer crashed")

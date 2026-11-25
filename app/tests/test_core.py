@@ -89,7 +89,7 @@ def test_destination_from_registry_entry_maps_rclone_options():
             "rclone": {
                 "type": "s3",
                 "provider": "Other",
-                "endpoint": "https://oss.example.com",
+                "endpoint": "https://s3.example.com",
                 "access_key_id": "AK",
                 "secret_access_key": "SK",
             },
@@ -99,7 +99,7 @@ def test_destination_from_registry_entry_maps_rclone_options():
         },
     )
     assert (d.name, d.allow) == ("cloud-x", ["train-data/"])
-    assert d.env["RCLONE_CONFIG_DST_TYPE"] == "s3" and d.env["RCLONE_CONFIG_DST_ENDPOINT"] == "https://oss.example.com"
+    assert d.env["RCLONE_CONFIG_DST_TYPE"] == "s3" and d.env["RCLONE_CONFIG_DST_ENDPOINT"] == "https://s3.example.com"
     assert not any(k.endswith(("_ALLOW", "_DESCRIPTION", "_CA_CERT_PEM")) for k in d.env)
     assert open(d.ca_cert_file).read().rstrip().endswith("-----END CERTIFICATE-----")
 

@@ -16,3 +16,6 @@ dist/
 .xl.env
 .redact.json
 docs/images/poc/portal/_raw/
+temp/
+docs/images/poc/feishu/_raw/
+docs/superpowers/

@@ -702,6 +702,13 @@ def main() -> int:
         events += anomaly_events(client, windows, state)
     except Exception:
         log.exception("anomaly detection failed (non-fatal)")
+    if s.key_vault_id or s.feishu_app_id:
+        from . import ticket_audit
+
+        try:
+            events += ticket_audit.run(client, _query)
+        except Exception:
+            log.exception("ticket / registry audit failed (non-fatal)")
 
     fresh = []
     for e in sorted(events, key=lambda e: e.TimeGenerated):

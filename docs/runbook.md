@@ -1,207 +1,127 @@
-# 操作手册（Runbook）：一个工单的完整生命周期
+# 操作手册（Runbook）：一张工单的完整生命周期
 
-> 以工单 `DT-2026-0001`（“Q4 数据分析：拉取 batch-001，并把 batch-002 搬到国内对象存储”）为例，按角色分步说明。
+> 默认流程：业务方在**飞书审批**中提交数据申请，IT 在飞书中审批，Azure 上的服务复核后自动搬运，全程记入台账。业务方不需要 Azure 账号，也不需要任何命令行工具。
 >
-> - `xl` 命令在仓库的 `app/` 目录下执行（`uv run xl ...`），也可以先安装（`uv tool install ./app`），之后直接用 `xl ...`。需要仓库根目录有 `.xl.env`，并已用自己的账号 `az login`
-> - rclone 的详细用法见 [rclone.md](rclone.md)
+> IT 和审计人员使用的 `xl` 命令在仓库的 `app/` 目录下执行（`uv run xl ...`），需要仓库根目录有 `.xl.env`（部署脚本生成），并已用自己的账号 `az login`。
+>
+> 可选的自助模式（有 Azure 账号的人员通过 PIM 申请、自己用 rclone 读取）见 [self-service.md](self-service.md)。
 
 ```mermaid
 stateDiagram-v2
-  [*] --> 申请: xl request（研发 / 数据）
-  申请 --> 已撤回: xl cancel
-  申请 --> 待审批: PIM
-  待审批 --> 已拒绝: 拒绝（IT）
-  待审批 --> 已激活: 批准（IT）
-  已激活 --> 操作中: rclone copy / check
-  操作中 --> 已收回: xl revoke（主动交还）
-  操作中 --> 已收回: xl force-revoke（IT 强制收回）
-  操作中 --> 已过期: 到达时限自动收回
-  已撤回 --> [*]
-  已拒绝 --> [*]
-  已收回 --> [*]
-  已过期 --> [*]
+  [*] --> 已提交: 业务方在飞书提交
+  已提交 --> 已拒绝: IT 拒绝
+  已提交 --> 已撤回: 申请人撤回
+  已提交 --> 复核: IT 审批通过
+  复核 --> 未执行: 复核失败（非 IT 审批 / 自审批 / 未登记）
+  复核 --> 排队中: 复核通过
+  排队中 --> 已撤回: 开始前撤回
+  排队中 --> 搬运中: worker 启动
+  搬运中 --> 已完成: 校验通过
+  搬运中 --> 失败: 重试 3 次后
+  搬运中 --> 异常: 开始后被撤回 / 删除
+  已完成 --> [*]
 ```
 
-## 0. 研发 / 数据：确认自己的资格
+## 1. IT 运维：准备工作（一次性 / 偶尔）
+
+### 1.1 登记目的地（Azure 门户）
+
+1. 门户 → Key Vault（`kv-<prefix>-<后缀>`）→ **机密** → **生成/导入**
+2. 名称：`dest-<名称>`，例如 `dest-store-a`；**值**：对象存储的 Secret Key
+3. **标签**：
+
+   | 标签 | 示例 |
+   |---|---|
+   | `xl-kind` | `destination` |
+   | `provider` | rclone 的 S3 provider 名称，例如 `Other`（通用 S3 兼容存储；各云厂商的名称见 rclone 文档）|
+   | `endpoint` | `https://s3.<region>.example.com`（对象存储的 S3 兼容 endpoint）|
+   | `access_key_id` | AccessKey ID |
+   | `root` | `bucket-name/landing/`（数据落到 `<root>/<数据集>/`）|
+   | `description`（可选）| 用途说明 |
+
+4. 在目的地的 bucket 策略 / 防火墙中放行 worker 的出口 IP（`terraform output managed_transfer`）
+5. 连通性测试：`uv run xl dest test store-a`（从 worker 本身发起，结果写入台账）
+6. 在飞书审批后台，把 `store-a` 加入表单“目的地”控件的选项
+
+命令行等价操作：`uv run xl dest add store-a --provider Other --endpoint https://... --access-key-id <AK> --root bucket-name/landing/`（Secret Key 交互输入，不回显）。
+
+**变更与停用**：在门户中新建机密版本（换密钥）或修改标签；停用时把机密设为“禁用”。每次变更都会以 `destination.changed` 记入台账（谁、何时、哪个目的地，不记录值），查看：`uv run xl timeline DEST-store-a`。
+
+### 1.2 新增数据集
+
+在 `infra/terraform.tfvars` 的 `datasets` 中加一项（名称 → 源容器中的前缀），执行 `./scripts/deploy.sh`；再在飞书审批后台把名称加入“数据集”控件的选项。
+
+### 1.3 表单与登记表是否一致
 
 ```bash
-uv run xl roles
+uv run xl feishu check      # 列出表单控件及其含义，比较下拉选项与登记表
 ```
 
-```
-role               scope         eligible  active until
-source-reader      xlab12src     yes       -
-transfer-operator  sb-xlab12     yes       -        # 仅启用托管搬运组件时
-```
+collector 每 5 分钟自动比较一次，不一致时记录 `catalog.drift` 并发邮件告警。按提示在飞书后台补齐或删除选项即可。表单中有、登记表中没有的选项，提交后会被复核拒绝，不会越权。
 
-`eligible = no` 说明你还不在 data-team 组里，请联系 IT 运维。
+## 2. 业务方：提交申请（飞书）
 
-## 1. 申请（Request）
+飞书 → 审批 → “数据回传申请”（名称以实际配置为准）：
 
-```bash
-uv run xl request source-reader -t DT-2026-0001 \
-  -r "Q4 数据分析：拉取 batch-001，搬运 batch-002 到国内对象存储" --hours 4
-# request 6f0c...  status=PendingApprovalProvisioning  ticket=DT-2026-0001
-```
+| 控件 | 填写 |
+|---|---|
+| 数据集 | 下拉选择 |
+| 目的地 | 下拉选择 |
+| 用途 | 说明用途（记入台账和 manifest）|
 
-- 工单号 `-t` 是整条台账的主键，**同一件事的所有申请都使用同一个工单号**
-- 申请成功后，IT 运维组成员会收到 PIM 审批邮件
-- 还没被审批时可以自行撤回（台账记为 `access.canceled`）：`uv run xl cancel source-reader -t DT-2026-0001`
+提交后，审批机器人会在关键节点发消息：已审批开始传输、完成（附目的地路径和工单号）、未执行（附原因）。
 
-## 2. IT 运维：审批（Approve）
+## 3. IT 运维：审批（飞书）
 
-在 Azure 门户中：**Microsoft Entra Privileged Identity Management → Approve requests → Azure resources**，核对工单号和理由后批准或拒绝。
+在飞书中正常审批。审批通过后，系统还会**独立复核**一遍：
 
-也可以用 CLI：
+- 至少一位审批通过的人在 IT 审批人名单中（`it_approver_emails`），并且不是申请人本人
+- 数据集、目的地都已登记，目的地处于启用状态
 
-```bash
-uv run xl approvals
-uv run xl approve -t DT-2026-0001 -r "已核对数据许可与出入境评估"
-uv run xl deny    -t DT-2026-0001 -r "缺少数据分类结果"
-```
+复核失败时不会搬运：记录 `transfer.rejected` 并发邮件告警，同时给申请人发消息说明原因。
 
-> PIM 不允许申请人审批自己的请求。即使申请人也在 it-ops 组里，也需要另一位 IT 成员审批。
+## 4. 搬运（自动）
 
-## 3. 操作（Operate）：rclone
-
-在国内公有云的开发机 / 开发容器或搬运机上（出口 IP 需已在白名单中）：
-
-```bash
-az login --use-device-code                                  # 首次：用自己的账号登录
-uv run xl rclone-config >> ~/.config/rclone/rclone.conf     # 首次：生成远端配置（不含密钥）
-
-# 场景 A：研发拉到本地
-rclone copy  overseas:datasets/batch-001 /data/batch-001 --checksum --transfers 16
-rclone check overseas:datasets/batch-001 /data/batch-001
-
-# 场景 B：数据团队搬到国内对象存储
-rclone copy  overseas:datasets/batch-002 domestic:bucket/batch-002 --checksum --transfers 32
-rclone check overseas:datasets/batch-002 domestic:bucket/batch-002
-```
-
-激活生效后通常 1–3 分钟才能读取（数据平面 RBAC 的传播时间）。
-
-## 4. 收回（Revoke）
-
-| 方式 | 命令 | 台账事件 |
-|---|---|---|
-| 用完主动交还（推荐）| `uv run xl revoke source-reader -t DT-2026-0001` | `access.revoked`（kind=self）|
-| IT 强制收回 | `uv run xl force-revoke source-reader --principal <oid> -t DT-2026-0001 -r "..."` | `access.revoked`（kind=admin）|
-| 到期自动收回 | — | `access.expired` |
-
-- PIM 规定**激活后至少 5 分钟**才能交还（否则报 `ActiveDurationTooShort`）
-- 收回后 1–3 分钟内，rclone 的读取会被拒绝（`AuthorizationPermissionMismatch`）
-
-授权窗口关闭约 15 分钟后，collector 会根据存储服务端日志，汇总此人在窗口内对源数据的全部实际操作，写入 `data.accessed` 事件（操作数、对象数、字节数、对象样本、来源 IP）。
+| 步骤 | 说明 |
+|---|---|
+| 排队 | 每张工单一个分片（`transfer.queued`）；同一张工单不会被搬两次 |
+| 执行 | worker 再查一次工单状态，然后以托管身份经私网读取，rclone 写入 `<root>/<数据集>/` |
+| 校验 | 逐对象比对大小和哈希（`verify.passed`）；在目的地写 `<bucket>/_manifests/<工单>/<requestId>.json` |
+| 结束 | `transfer.completed`、`ticket.closed`，并通知申请人 |
 
 ## 5. 审计：查台账
 
 ```bash
-uv run xl tickets                         # 所有工单及其覆盖的阶段
-uv run xl timeline DT-2026-0001           # 某个工单的完整时间线
-uv run xl ledger-verify DT-2026-0001      # 与 Confidential Ledger 逐条比对哈希
+uv run xl tickets                      # 所有工单及其阶段覆盖（request → approve → operate → close）
+uv run xl timeline <工单号>             # 一张工单的完整时间线
+uv run xl ledger-verify <工单号>        # 与 Confidential Ledger 中的哈希逐条比对
 ```
 
-在门户中：**Azure Monitor → Workbooks → “cross-ledger — data movement ledger”**，点击任一工单即可查看它的时间线。
-
-常用 KQL：
+工单号即飞书审批**实例号**；飞书界面中显示的审批编号在事件的 `Details.serial` 中。也可以在门户中打开 Workbook “cross-ledger 台账”，或在 Log Analytics 中查询：
 
 ```kusto
-// 一个工单的全过程
-XLedger_CL | where TicketId == "DT-2026-0001" | order by TimeGenerated asc
-
-// 生命周期不完整的工单（例如有操作但还没有收回）
 XLedger_CL
-| summarize Stages = make_set(Stage), Last = max(TimeGenerated) by TicketId
-| where not(set_has_element(Stages, "revoke"))
-
-// 所有异常
-XLedger_CL | where Status in ("Anomaly", "Denied") or EventType in ("transfer.rejected", "verify.failed", "access.denied")
-
-// 某人通过 rclone 等方式实际读取的数据量
-XLedger_CL
-| where EventType == "data.accessed" and ActorName == "alice@contoso.com"
-| summarize GB = sum(tolong(Details.BytesOut)) / 1e9, Objects = sum(tolong(Details.Objects)) by TicketId
-
-// 网络安全边界拒绝的来源（公网模式）
-NSPAccessLogs | where ResultAction == "Denied" | summarize count() by SourceIpAddress, bin(TimeGenerated, 1h)
+| where TicketId == "<实例号>"
+| project TimeGenerated, Stage, EventType, ActorName, Status, Message
+| order by TimeGenerated asc
 ```
 
-## 6. 可选：托管搬运组件
+审批时的工单原文在 WORM 归档中：`<审计账户>/ledger/tickets/<实例号>/<sha256 前 16 位>.json`，其完整哈希见 `ticket.snapshot` 事件。
 
-启用 `enable_managed_transfer` 后，数据团队可以把搬运交给平台：申请的是 `transfer-operator`（**只能提交任务，读不到数据**），实际搬运由 Azure 上的 worker 以服务身份完成（rclone → 国内对象存储，逐对象校验，写 manifest）。
+## 6. 告警与故障处理
 
-### 6.1 数据团队：查看目的地、申请、提交
+台账出现以下事件时，Azure Monitor 会发邮件给 `alert_emails`：
 
-```bash
-uv run xl dest list                                   # IT 已注册的目的地及其允许范围
+| 事件 | 含义 | 处理 |
+|---|---|---|
+| `transfer.rejected` | 复核失败 | 查看 Message：非 IT 审批 / 自审批 → 让另一位 IT 重新提单审批；未登记 → 登记或修正表单 |
+| `transfer.failed` | rclone 失败（DeadLettered = 3 次后放弃）| 查看 Message 和 Job 日志；常见原因：目的地凭证失效、出口 IP 未放行、bucket 不存在。修复后让申请人重新提单 |
+| `verify.failed` | 校验不一致 | 检查目的地是否有其他写入；重新提单会只补差异 |
+| `ticket.withdrawn.after-start` | 搬运开始后工单被撤回 | 与申请人和审批人确认；需要时手工清理目的地 `<root>/<数据集>/` 并在工单系统留言说明 |
+| `ticket.source.deleted` | 工单记录从飞书中消失 | 审批快照仍在 WORM 中；确认删除原因（已搬运时为 Anomaly）|
+| `catalog.drift` | 表单选项与登记表不一致 | 见 1.3 |
+| `data.accessed.outside-window` | 有 worker 以外的身份读取了源数据 | 检查 RBAC（`rbac.changed` 事件），收回多余的数据角色 |
 
-# 申请时写明目的地（可多个）：审批人在审批页的理由中看得到，worker 只放行这些目的地
-uv run xl request transfer-operator -t DT-2026-0002 -r "首批：batch-001～100 搬到国内对象存储" \
-  --to cloud-x:train-data/2026Q4/ --to idc:datasets/eval/ --hours 2
-#   → IT 审批
+**connector 状态**：门户 → 容器应用 `ca-<prefix>-<后缀>-connector` → 日志流，正常时能看到 `connected to wss://...`。更换飞书 App Secret 后执行 `uv run xl feishu set-secret` 和 `uv run xl feishu restart`。connector 停机期间的工单会在恢复后由 collector 对账补上（最多回看 `ticket_reconcile_days` 天）。
 
-# 提交：单条路线
-uv run xl transfer -t DT-2026-0002 -p batch-001/ -p batch-002/ --to cloud-x:train-data/2026Q4/
-
-# 提交：计划文件（多条路线、多个目的地），先 --dry-run 校验
-uv run xl transfer --plan plan.yaml --dry-run
-uv run xl transfer --plan plan.yaml
-
-uv run xl revoke transfer-operator -t DT-2026-0002    # 提交完即可交还，不影响已提交的分片
-```
-
-计划文件示例见 [examples/transfer-plan.yaml](examples/transfer-plan.yaml)。每个分片落在 `<目标>/<前缀>`，例如 `cloud-x:train-data/2026Q4/batch-001/`。
-
-- 授权以**提交时刻**为准：要在授权有效期内提交；已经提交的分片即使排队到授权结束之后，也会照常执行
-- 目标必须同时在“IT 注册的范围”和“本工单批准的目的地”内，CLI 会先检查；不满足时 worker 也会拒绝（`transfer.rejected`）并触发告警
-
-### 6.2 跟踪进度
-
-```bash
-uv run xl timeline DT-2026-0002        # transfer.started → verify.passed → transfer.completed（每个分片一组）
-```
-
-在门户中：Workbook 的工单视图；或 Container Apps Job `job-*-transfer` → **Execution history**。目的地桶中的 `_manifests/<工单号>/<requestId>.json` 记录了每个分片的对象清单和校验结果。
-
-### 6.3 IT 运维：日常维护
-
-| 事项 | 做法 |
-|---|---|
-| 注册 / 更新目的地 | `xl dest add <名称> --from-rclone <远端> --allow <bucket/前缀/>`（见 deployment.md）；重新执行即可轮换凭证或调整范围，下一个分片生效 |
-| 测试目的地 | `xl dest test <名称>`：从 worker 发起列举、写入、读取、删除探测，结果写入台账（工单号 `DEST-<名称>`）|
-| 停用目的地 | `xl dest remove <名称>` |
-| 告警 | 出现 `transfer.failed` / `transfer.rejected` / `verify.failed` / `audit.gap` / 越权访问时，Azure Monitor 邮件通知 `alert_emails` |
-| 失败重试 | 失败的分片自动重试；3 次后进入 Service Bus 死信队列。修复原因后重新 `xl transfer` 同一前缀即可，已传完的对象会被跳过 |
-| 紧急暂停 | `az containerapp job update -n <job> -g <rg> --max-executions 0`：已排队的任务保留在队列中；恢复时执行 `terraform apply` 即可 |
-| 目的地放行 | 每个目的地只需放行 `terraform output managed_transfer` 中的 `egress_ip` |
-
-## 7. 故障处理
-
-| 现象 | 原因 / 处理 |
-|---|---|
-| rclone 报 `AuthorizationPermissionMismatch` | 没有激活的 `source-reader`；或刚激活/刚交还，RBAC 正在传播（等 1–3 分钟）|
-| rclone 报 `not authorized by network security perimeter` | 当前出口 IP 不在白名单中，联系 IT 加入 `perimeter_allowed_ips` |
-| `xl revoke` 报 `ActiveDurationTooShort` | PIM 规定激活后至少 5 分钟才能交还，稍后再试 |
-| `xl request` 报 `RoleAssignmentDoesNotExist`，但 `xl roles` 显示 eligible = yes | 你**刚被加进** data-team 组，PIM 服务还没有同步到新成员。等待同步并重新登录；急用时由 IT 把 `eligibility_mode` 设为 `user` |
-| `az` 报 `TokenIssuedBeforeRevocationTimestamp` / `InteractionRequired` | 账号会话被撤销（例如改了密码），重新 `az login --use-device-code` |
-| 台账一直为空 | collector 每 5 分钟运行一次，Log Analytics 摄取还有 2–5 分钟延迟；`data.accessed` 要在授权窗口关闭约 15 分钟后才会出现 |
-| `data.accessed.outside-window` | 有人绕过 PIM 拿到了常驻的数据角色：立即排查对应存储账号上的角色分配 |
-| `data.access.denied` | 有人在没有激活授权时尝试访问数据并被拒绝，通常是误操作（例如在门户里浏览容器）。如果同一人反复出现，需要跟进 |
-| `rbac.changed` | 有人在 PIM 之外改动了方案作用域上的常驻角色分配。通过 IaC 正常发布时也会出现，需要与变更单核对 |
-| 托管搬运：`transfer.rejected` | 提交时的工单号与激活时的不一致，或激活已过期 |
-| 托管搬运：`transfer.failed`（多次）| rclone 的错误信息记录在台账事件的消息和 Job 日志中；临时错误会自动重试，3 次后消息进入 Service Bus 死信队列，由 IT 排查后重新提交 |
-| 托管搬运：`... is outside the scope registered for destination` | 目标不在 IT 注册的允许范围内；确认 bucket / 前缀，或请 IT 调整注册范围 |
-| 托管搬运：`... is not covered by the approved destinations` | 目标不在本工单批准的目的地内；用新的 `--to` 重新申请 |
-| 托管搬运：`transfer-operator requests must name the destination(s)` | 申请 `transfer-operator` 时必须带 `--to` |
-| 托管搬运：连接目的地超时 | 目的地防火墙 / 桶策略没有放行 worker 的出口 IP；注意路径上可能有多层防火墙（例如网卡和子网各一层），每一层都要放行 |
-| 托管搬运：`certificate signed by unknown authority` | 目的地使用私有 CA 时，在目的地凭证中提供 `ca_cert_pem`（worker 会把它与系统根证书合并使用）|
-
-Job 日志：
-
-```kusto
-ContainerAppConsoleLogs_CL
-| where ContainerJobName_s startswith "job-"
-| project TimeGenerated, ContainerJobName_s, Log_s
-| order by TimeGenerated desc
-```
+**死信**：`ticket-events` 中处理 10 次仍失败、`transfer-requests` 中重试 3 次仍失败的消息进入死信队列，可在门户的 Service Bus 资源中查看。

@@ -20,7 +20,10 @@ locals {
   }
 
   # What the data team can ask for. Keys are the short names used by the CLI.
-  data_roles = merge(local.base_data_roles, var.enable_managed_transfer ? {
+  # Only in self-service mode; with ticket intake nobody outside IT needs a data role.
+  data_roles = { for k, v in local.all_data_roles : k => v if var.enable_self_service }
+
+  all_data_roles = merge(local.base_data_roles, local.managed_transfer ? {
     transfer-operator = {
       scope       = local.bus_namespace_id
       role        = local.role_ids.bus_sender

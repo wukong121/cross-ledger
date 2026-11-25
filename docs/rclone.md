@@ -1,5 +1,7 @@
 # 用 rclone 获取海外数据（研发 / 数据团队指南）
 
+> 本文适用于可选的**自助模式**（`enable_self_service = true`）。默认的工单驱动流程中，数据由 worker 自动搬运，业务方不需要使用 rclone，见 [runbook.md](runbook.md)。
+
 > 默认的数据通道是**自助拉取**：研发或数据人员用 [rclone](https://rclone.org/)，以**自己的 Entra ID 身份**读取海外源数据。读权限只在 PIM 申请获批后的时间窗口内有效，窗口内的每一次读取都会被 Azure 记录，并按工单号汇总进台账。全程不需要密钥、SAS 或任何共享账号。
 
 ## 1. 两个典型场景
@@ -11,7 +13,7 @@
 | rclone 目标 | 本地路径 | S3 兼容对象存储（各云厂商在 rclone 中都有现成的 provider）|
 | 申请的角色 | `source-reader` | `source-reader` |
 
-> 如果源数据不允许对外开放、搬运人员不应持有读权限，或者需要长时间无人值守的批量搬运，可以改用**托管搬运组件**：数据人员只提交任务，由 Azure 上的 worker 以服务身份运行 rclone 完成搬运（见 [architecture.md](architecture.md) 第 5.2 节、[runbook.md](runbook.md) 第 6 节）。
+> 如果源数据不允许对外开放、搬运人员不应持有读权限，或者需要长时间无人值守的批量搬运，可以改用**托管搬运组件**：数据人员只提交任务，由 Azure 上的 worker 以服务身份运行 rclone 完成搬运（见 [self-service.md](self-service.md) 第 6 节）。
 
 ## 2. 前置条件
 

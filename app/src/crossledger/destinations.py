@@ -4,8 +4,11 @@ A *destination* is a named rclone remote (connection + credentials) plus the buc
 scope data may be written to. Only IT ops register destinations; users pick one per
 transfer with an rclone-style target ``<destination>:<bucket>/<path>/``.
 
-Storage: one Key Vault secret per destination, ``dest-<name>``.
-  * value (JSON, authoritative, readable by the worker only):
+Storage: one Key Vault secret per destination, ``dest-<name>``, in one of two formats.
+  * portal format (default; IT fills the "create secret" form in the Azure portal):
+        value = S3 secret key; tags = provider, endpoint, access_key_id, root, region?, description?
+        (optional private CA: a second secret ``dest-<name>-ca``)
+  * legacy format — value (JSON, authoritative, readable by the worker only):
         {"rclone": {...rclone remote options...}, "allow": ["bucket/prefix/", ...],
          "description": "...", "ca_cert_pem": "(optional)"}
   * tags (non-secret, listable through ARM by anyone with Reader on the vault):
@@ -121,6 +124,68 @@ def _vault_id() -> str:
     return vid
 
 
+# Tags of the portal-friendly format that become rclone S3 options.
+S3_TAGS = ("provider", "endpoint", "access_key_id", "region")
+
+
+def _root(text: str) -> str:
+    text = (text or "").strip().strip("/")
+    return f"{text}/" if text else ""
+
+
+def doc_from_secret(value: str, tags: dict[str, str]) -> dict:
+    """Registry entry from a Key Vault secret, in either format.
+
+    * portal format (IT fills a form in the Azure portal): value = the S3 secret key;
+      tags = provider, endpoint, access_key_id, root (bucket/prefix/), region?, description?
+    * legacy format: value = JSON {"rclone": {...}, "allow": [...], "description", "ca_cert_pem"?}
+    """
+    try:
+        doc = json.loads(value)
+    except (TypeError, ValueError):
+        doc = None
+    if isinstance(doc, dict) and "rclone" in doc:
+        return doc
+    tags = tags or {}
+    rclone = {"type": tags.get("type") or "s3"}
+    rclone.update({k: tags[k] for k in S3_TAGS if tags.get(k)})
+    rclone["secret_access_key"] = value
+    root = _root(tags.get("root", ""))
+    return {"rclone": rclone, "allow": [root] if root else [], "description": tags.get("description", "")}
+
+
+def put_s3(
+    name: str,
+    *,
+    provider: str,
+    endpoint: str,
+    access_key_id: str,
+    secret_key: str,
+    root: str,
+    region: str = "",
+    description: str = "",
+) -> dict:
+    """Register / update a destination in the portal-friendly format (what IT would type in the portal)."""
+    if not NAME_RE.match(name):
+        raise DestinationError("destination names: lowercase letters, digits and '-' (max 32)")
+    if not _root(root):
+        raise DestinationError("a landing root bucket/prefix/ is required (--root)")
+    tags = {
+        "xl-kind": "destination",
+        "type": "s3",
+        "provider": provider,
+        "endpoint": endpoint,
+        "access_key_id": access_key_id,
+        "root": _root(root),
+        "allow": _root(root),
+        "description": description[:250],
+    }
+    if region:
+        tags["region"] = region
+    body = {"tags": tags, "properties": {"value": secret_key, "contentType": "text/plain"}}
+    return arm("PUT", f"{_vault_id()}/secrets/{SECRET_PREFIX}{name}", KV_API, body)
+
+
 def put(name: str, rclone: dict, allow: list[str], description: str = "", ca_cert_pem: str | None = None) -> dict:
     if not NAME_RE.match(name):
         raise DestinationError("destination names: lowercase letters, digits and '-' (max 32)")
@@ -161,13 +226,15 @@ def list_all() -> list[dict]:
         tags = sec.get("tags") or {}
         if tags.get("xl-kind") != "destination" or not sec["name"].startswith(SECRET_PREFIX):
             continue
+        allow = [a for a in (tags.get("root") or tags.get("allow", "")).split(",") if a]
         attrs = (sec.get("properties") or {}).get("attributes") or {}
         out.append(
             {
                 "name": sec["name"][len(SECRET_PREFIX) :],
                 "type": tags.get("type", ""),
                 "provider": tags.get("provider", ""),
-                "allow": [a for a in tags.get("allow", "").split(",") if a],
+                "allow": allow,
+                "root": allow[0] if allow else "",
                 "description": tags.get("description", ""),
                 "enabled": attrs.get("enabled", True),
                 "updated": _ts(attrs.get("updated")),

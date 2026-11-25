@@ -28,6 +28,9 @@ def _load_dotenv() -> None:
             return
 
 
+DEFAULT_FIELDS = {"数据集": "dataset", "目的地": "destination", "用途": "purpose"}
+
+
 def _get(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
@@ -58,6 +61,17 @@ class Settings:
     service_identities: list[str] = field(default_factory=list)
     known_services: dict[str, str] = field(default_factory=dict)  # object id -> label
     roles: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Ticket intake (Feishu approvals) — empty feishu_app_id = intake disabled.
+    self_service: bool = False
+    datasets: dict[str, dict[str, str]] = field(default_factory=dict)  # name -> {prefix, description}
+    feishu_app_id: str = ""
+    feishu_approval_code: str = ""
+    feishu_domain: str = "https://open.feishu.cn"
+    feishu_fields: dict[str, str] = field(default_factory=dict)  # widget custom_id/id/name -> semantic
+    approver_emails: list[str] = field(default_factory=list)
+    ticket_queue: str = "ticket-events"
+    reconcile_days: int = 7
+    connector_app: str = ""
 
     def role_by_scope(self, scope: str, role_definition_id: str) -> str:
         """Short role name (CLI vocabulary) for a scope/role pair, or the role GUID."""
@@ -109,4 +123,14 @@ def settings() -> Settings:
         service_identities=[x for x in _get("XL_SERVICE_IDENTITIES").split(",") if x],
         known_services={k.lower(): v for k, v in json.loads(_get("XL_KNOWN_SERVICES") or "{}").items()},
         roles=roles,
+        self_service=_get("XL_SELF_SERVICE", "false").lower() == "true",
+        datasets=json.loads(_get("XL_DATASETS") or "{}"),
+        feishu_app_id=_get("XL_FEISHU_APP_ID"),
+        feishu_approval_code=_get("XL_FEISHU_APPROVAL_CODE"),
+        feishu_domain=_get("XL_FEISHU_DOMAIN", "https://open.feishu.cn").rstrip("/"),
+        feishu_fields=json.loads(_get("XL_FEISHU_FIELDS") or "{}") or dict(DEFAULT_FIELDS),
+        approver_emails=[e.strip().lower() for e in _get("XL_APPROVER_EMAILS").split(",") if e.strip()],
+        ticket_queue=_get("XL_TICKET_QUEUE", "ticket-events"),
+        reconcile_days=int(_get("XL_RECONCILE_DAYS", "7")),
+        connector_app=_get("XL_CONNECTOR_APP"),
     )

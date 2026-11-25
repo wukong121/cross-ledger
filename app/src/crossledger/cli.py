@@ -312,21 +312,64 @@ def dest_list() -> None:
 
 @dest_app.command("add")
 def dest_add(
-    name: Annotated[str, typer.Argument(help="Destination name, e.g. cloud-x")],
-    allow: Annotated[list[str], typer.Option("--allow", help="bucket/prefix/ data may be written to (repeatable)")],
+    name: Annotated[str, typer.Argument(help="Destination name, e.g. cloud-x (shown in the approval form)")],
+    root: Annotated[str | None, typer.Option(help="Landing root bucket/prefix/ (S3 form)")] = None,
+    endpoint: Annotated[str | None, typer.Option(help="S3-compatible endpoint URL (S3 form)")] = None,
+    access_key_id: Annotated[
+        str | None, typer.Option(help="Access key id (S3 form; the secret key is prompted)")
+    ] = None,
+    provider: Annotated[str, typer.Option(help="rclone S3 provider name (Other = any S3-compatible service)")] = "Other",
+    region: Annotated[str, typer.Option()] = "",
+    allow: Annotated[
+        list[str] | None, typer.Option("--allow", help="(rclone form) bucket/prefix/ data may be written to")
+    ] = None,
     from_rclone: Annotated[
-        str | None, typer.Option(help="Take connection + credentials from this local rclone remote")
+        str | None, typer.Option(help="(rclone form) take connection + credentials from this local rclone remote")
     ] = None,
     rclone_config: Annotated[Path | None, typer.Option(help="rclone config file (default: rclone's own)")] = None,
-    from_json: Annotated[Path | None, typer.Option(help="...or from a JSON file of rclone remote options")] = None,
+    from_json: Annotated[Path | None, typer.Option(help="(rclone form) JSON file of rclone remote options")] = None,
     ca_cert: Annotated[Path | None, typer.Option(help="PEM of a private CA the destination uses")] = None,
     description: Annotated[str, typer.Option()] = "",
 ) -> None:
-    """(IT ops) Register or update a destination. Written through ARM — no Key Vault network access needed."""
+    """(IT ops) Register or update a destination — the same thing IT can do in the Azure portal
+    (Key Vault > Secrets > dest-<name>: value = secret key, tags = provider/endpoint/access_key_id/root).
+    Written through ARM — no Key Vault network access needed."""
     import subprocess
 
     from . import destinations as dst
 
+    if root or endpoint or access_key_id:
+        if not (root and endpoint and access_key_id):
+            _fail(RuntimeError("S3 form needs --root, --endpoint and --access-key-id"))
+        secret_key = typer.prompt("secret access key", hide_input=True)
+        try:
+            dst.put_s3(
+                name,
+                provider=provider,
+                endpoint=endpoint,
+                access_key_id=access_key_id,
+                secret_key=secret_key,
+                root=root,
+                region=region,
+                description=description,
+            )
+            if ca_cert:
+                from .identity import arm
+
+                arm(
+                    "PUT",
+                    f"{dst._vault_id()}/secrets/{dst.SECRET_PREFIX}{name}-ca",
+                    dst.KV_API,
+                    {"properties": {"value": ca_cert.read_text(), "contentType": "application/x-pem-file"}},
+                )
+        except (dst.DestinationError, ArmError) as e:
+            _fail(e)
+        con.print(f"[green]registered[/] {name}: {provider} {endpoint} root={root.strip('/')}/ (secret key not shown)")
+        con.print(f"next: `xl dest test {name}` and add '{name}' to the approval form's destination options")
+        return
+
+    if not allow:
+        _fail(RuntimeError("give --root/--endpoint/--access-key-id, or --allow with --from-rclone/--from-json"))
     if bool(from_rclone) == bool(from_json):
         _fail(RuntimeError("use exactly one of --from-rclone / --from-json"))
     if from_rclone:
@@ -528,13 +571,14 @@ def tickets(days: int = 30) -> None:
         """
 XLedger_CL
 | summarize First=min(TimeGenerated), Last=max(TimeGenerated), Stages=make_set(Stage), Events=count(),
-    Requester=take_anyif(ActorName, EventType=='access.requested'), Approver=take_anyif(ActorName, EventType=='access.approved' and ActorType != 'System')
+    Requester=take_anyif(ActorName, EventType in ('access.requested', 'ticket.submitted')),
+    Approver=take_anyif(ActorName, EventType in ('access.approved', 'ticket.approved') and ActorType != 'System')
     by TicketId
 | order by Last desc""",
         days,
     )
     t = Table("ticket", "requester", "approver", "stages", "events", "last event")
-    order = ["request", "approve", "operate", "revoke"]
+    order = ["request", "approve", "operate", "close", "revoke"]
     for r in rows:
         stages = json.loads(r["Stages"]) if isinstance(r["Stages"], str) else r["Stages"]
         t.add_row(
@@ -570,7 +614,13 @@ XLedger_CL | where TicketId == '{safe}'
 
 
 @app.command("ledger-verify")
-def ledger_verify(ticket: Annotated[str, typer.Argument()], days: int = 30) -> None:
+def ledger_verify(
+    ticket: Annotated[str, typer.Argument()],
+    days: int = 30,
+    receipts: Annotated[
+        bool, typer.Option("--receipts", help="Also fetch and verify each entry's signed receipt (offline proof)")
+    ] = False,
+) -> None:
     """Cross-check Log Analytics rows against Azure Confidential Ledger entries (tamper evidence)."""
     from .events import _ConfidentialLedgerSink
 
@@ -588,19 +638,104 @@ def ledger_verify(ticket: Annotated[str, typer.Argument()], days: int = 30) -> N
         f"Tx=tostring(Details.ledgerTransactionId), Sha=tostring(Details.sha256)",
         days,
     )
-    t = Table("event", "ledger tx", "result")
+    t = Table("event", "ledger tx", "result", *(["receipt"] if receipts else []))
     bad = 0
     for r in rows:
         tx, sha = entries.get(r["EventId"], (None, None))
         ok = tx == r["Tx"] and sha == r["Sha"]
         bad += not ok
-        t.add_row(r["EventType"], r["Tx"], "[green]match" if ok else "[red]MISMATCH / missing in ledger")
+        cells = [r["EventType"], r["Tx"], "[green]match" if ok else "[red]MISMATCH / missing in ledger"]
+        if receipts:
+            good, note = acl.verify_receipt(tx) if tx else (False, "no ledger entry")
+            bad += not good
+            cells.append(f"[green]verified[/] ({note})" if good else f"[red]FAILED[/] {note}")
+        t.add_row(*cells)
     con.print(t)
     con.print(f"{len(rows)} rows, {len(entries)} ledger entries, {bad} problems")
     raise typer.Exit(1 if bad else 0)
 
 
+# ------------------------------------------------------------- ticket intake --
+
+feishu_app = typer.Typer(no_args_is_help=True, help="Feishu approval intake (IT ops).")
+app.add_typer(feishu_app, name="feishu")
+
+
+@feishu_app.command("set-secret")
+def feishu_set_secret() -> None:
+    """Store the Feishu App Secret in Key Vault (prompted, never echoed). Written through ARM."""
+    from . import destinations as dst
+    from .feishu import SECRET_NAME
+    from .identity import arm
+
+    value = typer.prompt("Feishu App Secret", hide_input=True).strip()
+    if not value:
+        _fail(RuntimeError("empty secret"))
+    try:
+        arm(
+            "PUT",
+            f"{dst._vault_id()}/secrets/{SECRET_NAME}",
+            dst.KV_API,
+            {"tags": {"xl-kind": "feishu"}, "properties": {"value": value, "contentType": "text/plain"}},
+        )
+    except (dst.DestinationError, ArmError) as e:
+        _fail(e)
+    con.print(f"[green]stored[/] Key Vault secret {SECRET_NAME} (value not shown)")
+    con.print("restart the connector so it picks it up: `xl feishu restart`")
+
+
+@feishu_app.command("restart")
+def feishu_restart() -> None:
+    """Restart the connector (e.g. after rotating the App Secret)."""
+    from .identity import arm
+
+    s = settings()
+    if not s.connector_app:
+        _fail(RuntimeError("no connector configured (XL_CONNECTOR_APP)"))
+    app_id = f"/subscriptions/{s.subscription_id}/resourceGroups/{s.gov_rg}/providers/Microsoft.App/containerApps/{s.connector_app}"
+    rev = arm("GET", app_id, "2025-01-01")["properties"]["latestRevisionName"]
+    arm("POST", f"{app_id}/revisions/{rev}/restart", "2025-01-01")
+    con.print(f"[green]restarted[/] {s.connector_app} ({rev})")
+
+
+@feishu_app.command("check")
+def feishu_check() -> None:
+    """Show the approval form as the connector sees it, and compare its options with the registries."""
+    from . import destinations as dst
+    from . import tickets as tk
+    from .feishu import FeishuClient
+
+    s = settings()
+    secret = typer.prompt("Feishu App Secret (only used locally for this check)", hide_input=True)
+    fs = FeishuClient(s.feishu_app_id, secret, s.feishu_domain)
+    d = fs.get_definition(s.feishu_approval_code)
+    t = Table("widget id", "custom id", "name", "type", "→ meaning")
+    for w in tk._widgets(d.get("form")):
+        t.add_row(
+            w.get("id", ""),
+            w.get("custom_id", ""),
+            w.get("name", ""),
+            w.get("type", ""),
+            tk._semantic(w, s.feishu_fields) or "",
+        )
+    con.print(f"approval [bold]{d.get('approval_name')}[/] status={d.get('status')}")
+    con.print(t)
+    opts = tk.form_options(d, s.feishu_fields)
+    enabled = [x["name"] for x in dst.list_all() if x["enabled"]]
+    diff = tk.catalog_diff(opts, s.datasets, enabled)
+    con.print(f"form options: {opts}")
+    con.print("[green]options match the registries" if diff is None else f"[yellow]drift: {diff}")
+
+
 # ----------------------------------------------------------------------- jobs --
+
+
+@app.command(hidden=True)
+def connector() -> None:
+    """(container app) Feishu long connection + ticket intake."""
+    from . import connector as c
+
+    raise typer.Exit(c.main())
 
 
 @app.command(hidden=True)
@@ -642,5 +777,5 @@ def _setup(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
         stream=sys.stderr,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    for noisy in ("azure.core.pipeline", "azure.identity", "httpx", "azure.monitor"):
+    for noisy in ("azure.core.pipeline", "azure.identity", "httpx", "azure.monitor", "azure.servicebus", "uamqp"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

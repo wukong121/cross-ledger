@@ -1,0 +1,92 @@
+<svg class="rich-terminal" viewBox="0 0 2458 269.6" xmlns="http://www.w3.org/2000/svg">
+    <!-- Generated with Rich https://www.textualize.io -->
+    <style>
+
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }
+    @font-face {
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }
+
+    .terminal-2211029470-matrix {
+        font-family: Fira Code, monospace;
+        font-size: 20px;
+        line-height: 24.4px;
+        font-variant-east-asian: full-width;
+    }
+
+    .terminal-2211029470-title {
+        font-size: 18px;
+        font-weight: bold;
+        font-family: arial;
+    }
+
+    .terminal-2211029470-r1 { fill: #98e024;font-weight: bold }
+.terminal-2211029470-r2 { fill: #d9d9d9 }
+.terminal-2211029470-r3 { fill: #58d1eb;font-weight: bold }
+    </style>
+
+    <defs>
+    <clipPath id="terminal-2211029470-clip-terminal">
+      <rect x="0" y="0" width="2439.0" height="218.6" />
+    </clipPath>
+    <clipPath id="terminal-2211029470-line-0">
+    <rect x="0" y="1.5" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-1">
+    <rect x="0" y="25.9" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-2">
+    <rect x="0" y="50.3" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-3">
+    <rect x="0" y="74.7" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-4">
+    <rect x="0" y="99.1" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-5">
+    <rect x="0" y="123.5" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-6">
+    <rect x="0" y="147.9" width="2440" height="24.65"/>
+            </clipPath>
+<clipPath id="terminal-2211029470-line-7">
+    <rect x="0" y="172.3" width="2440" height="24.65"/>
+            </clipPath>
+    </defs>
+
+    <rect fill="#0c0c0c" stroke="rgba(255,255,255,0.35)" stroke-width="1" x="1" y="1" width="2456" height="267.6" rx="8"/><text class="terminal-2211029470-title" fill="#d9d9d9" text-anchor="middle" x="1228" y="27">Independent&#160;re-check:&#160;what&#160;was&#160;stopped,&#160;and&#160;why</text>
+            <g transform="translate(26,22)">
+            <circle cx="0" cy="0" r="7" fill="#ff5f57"/>
+            <circle cx="22" cy="0" r="7" fill="#febc2e"/>
+            <circle cx="44" cy="0" r="7" fill="#28c840"/>
+            </g>
+        
+    <g transform="translate(9, 41)" clip-path="url(#terminal-2211029470-clip-terminal)">
+    
+    <g class="terminal-2211029470-matrix">
+    <text class="terminal-2211029470-r1" x="0" y="20" textLength="24.4" clip-path="url(#terminal-2211029470-line-0)">$&#160;</text><text class="terminal-2211029470-r1" x="24.4" y="20" textLength="854" clip-path="url(#terminal-2211029470-line-0)">XLedger_CL&#160;|&#160;where&#160;EventType&#160;in&#160;(&#x27;transfer.rejected&#x27;,&#160;&#x27;catalog.drift&#x27;)</text><text class="terminal-2211029470-r2" x="2440" y="20" textLength="12.2" clip-path="url(#terminal-2211029470-line-0)">
+</text><text class="terminal-2211029470-r2" x="2440" y="44.4" textLength="12.2" clip-path="url(#terminal-2211029470-line-1)">
+</text><text class="terminal-2211029470-r3" x="24.4" y="68.8" textLength="97.6" clip-path="url(#terminal-2211029470-line-2)">Time&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r3" x="158.6" y="68.8" textLength="109.8" clip-path="url(#terminal-2211029470-line-2)">Ticket&#160;&#160;&#160;</text><text class="terminal-2211029470-r3" x="305" y="68.8" textLength="207.4" clip-path="url(#terminal-2211029470-line-2)">EventType&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r3" x="549" y="68.8" textLength="1390.8" clip-path="url(#terminal-2211029470-line-2)">Message&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="2440" y="68.8" textLength="12.2" clip-path="url(#terminal-2211029470-line-2)">
+</text><text class="terminal-2211029470-r2" x="0" y="93.2" textLength="1964.2" clip-path="url(#terminal-2211029470-line-3)">&#160;━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━&#160;</text><text class="terminal-2211029470-r2" x="2440" y="93.2" textLength="12.2" clip-path="url(#terminal-2211029470-line-3)">
+</text><text class="terminal-2211029470-r2" x="24.4" y="117.6" textLength="97.6" clip-path="url(#terminal-2211029470-line-4)">06:07:02</text><text class="terminal-2211029470-r2" x="158.6" y="117.6" textLength="109.8" clip-path="url(#terminal-2211029470-line-4)">3FE2AF4D…</text><text class="terminal-2211029470-r2" x="305" y="117.6" textLength="207.4" clip-path="url(#terminal-2211029470-line-4)">transfer.rejected</text><text class="terminal-2211029470-r2" x="549" y="117.6" textLength="1390.8" clip-path="url(#terminal-2211029470-line-4)">the&#160;applicant&#160;approved&#160;their&#160;own&#160;request;&#160;IT&#160;approval&#160;by&#160;someone&#160;else&#160;is&#160;required&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="2440" y="117.6" textLength="12.2" clip-path="url(#terminal-2211029470-line-4)">
+</text><text class="terminal-2211029470-r2" x="24.4" y="142" textLength="97.6" clip-path="url(#terminal-2211029470-line-5)">07:00:36</text><text class="terminal-2211029470-r2" x="158.6" y="142" textLength="109.8" clip-path="url(#terminal-2211029470-line-5)">CATALOG&#160;&#160;</text><text class="terminal-2211029470-r2" x="305" y="142" textLength="207.4" clip-path="url(#terminal-2211029470-line-5)">catalog.drift&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="549" y="142" textLength="1390.8" clip-path="url(#terminal-2211029470-line-5)">approval&#160;form&#160;options&#160;differ&#160;from&#160;the&#160;registries&#160;—&#160;dataset:&#160;form&#160;lacks&#160;[&#x27;drive-sample&#x27;]&#160;/&#160;form&#160;has&#160;unregistered&#160;[]</text><text class="terminal-2211029470-r2" x="2440" y="142" textLength="12.2" clip-path="url(#terminal-2211029470-line-5)">
+</text><text class="terminal-2211029470-r2" x="24.4" y="166.4" textLength="97.6" clip-path="url(#terminal-2211029470-line-6)">07:08:05</text><text class="terminal-2211029470-r2" x="158.6" y="166.4" textLength="109.8" clip-path="url(#terminal-2211029470-line-6)">5A42E41B…</text><text class="terminal-2211029470-r2" x="305" y="166.4" textLength="207.4" clip-path="url(#terminal-2211029470-line-6)">transfer.rejected</text><text class="terminal-2211029470-r2" x="549" y="166.4" textLength="1390.8" clip-path="url(#terminal-2211029470-line-6)">dataset&#160;&#x27;&#x27;&#160;is&#160;not&#160;registered&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="2440" y="166.4" textLength="12.2" clip-path="url(#terminal-2211029470-line-6)">
+</text><text class="terminal-2211029470-r2" x="24.4" y="190.8" textLength="97.6" clip-path="url(#terminal-2211029470-line-7)">08:40:36</text><text class="terminal-2211029470-r2" x="158.6" y="190.8" textLength="109.8" clip-path="url(#terminal-2211029470-line-7)">CATALOG&#160;&#160;</text><text class="terminal-2211029470-r2" x="305" y="190.8" textLength="207.4" clip-path="url(#terminal-2211029470-line-7)">catalog.drift&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="549" y="190.8" textLength="1390.8" clip-path="url(#terminal-2211029470-line-7)">approval&#160;form&#160;options&#160;differ&#160;from&#160;the&#160;registries&#160;—&#160;dataset:&#160;form&#160;lacks&#160;[&#x27;drive-2&#x27;]&#160;/&#160;form&#160;has&#160;unregistered&#160;[]&#160;&#160;&#160;&#160;&#160;</text><text class="terminal-2211029470-r2" x="2440" y="190.8" textLength="12.2" clip-path="url(#terminal-2211029470-line-7)">
+</text><text class="terminal-2211029470-r2" x="2440" y="215.2" textLength="12.2" clip-path="url(#terminal-2211029470-line-8)">
+</text>
+    </g>
+    </g>
+</svg>

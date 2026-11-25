@@ -29,13 +29,14 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "ledger" {
   severity             = 2
   evaluation_frequency = "PT5M"
   window_duration      = "PT15M"
-  description          = "cross-ledger: transfer failed / rejected, verification failed, audit gap, or data accessed without activation"
+  description          = "cross-ledger: transfer failed / rejected, verification failed, audit gap, data accessed without activation, ticket withdrawn/deleted after approval, or approval form drift"
   tags                 = var.tags
 
   criteria {
     query                   = <<-KQL
       XLedger_CL
-      | where EventType in ("transfer.failed", "transfer.rejected", "verify.failed", "audit.gap", "data.accessed.outside-window")
+      | where EventType in ("transfer.failed", "transfer.rejected", "verify.failed", "audit.gap", "data.accessed.outside-window",
+          "ticket.withdrawn.after-start", "ticket.source.deleted", "catalog.drift")
       | project TimeGenerated, TicketId, EventType, ActorName, Message
     KQL
     time_aggregation_method = "Count"

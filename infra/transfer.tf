@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # Transfer plane: serverless Container Apps Jobs.
-#   job-transfer  : OPTIONAL (enable_managed_transfer); event-driven (KEDA Service Bus scaler); one execution per
+#   job-transfer  : managed transfer (intake = "feishu" or enable_managed_transfer); event-driven (KEDA Service Bus scaler); one execution per
 #                   queued shard; rclone source -> destination object storage + verification.
 #   job-collector : scheduled; turns PIM / Activity / Storage logs into ledger
 #                   events.
@@ -35,7 +35,7 @@ locals {
   common_env = [
     { name = "XL_SOURCE_ACCOUNT_URL", value = azurerm_storage_account.source.primary_blob_endpoint },
     { name = "XL_SOURCE_CONTAINER", value = azurerm_storage_container.source_datasets.name },
-    { name = "XL_BUS_NAMESPACE", value = var.enable_managed_transfer ? "${local.bus_namespace_name}.servicebus.windows.net" : "" },
+    { name = "XL_BUS_NAMESPACE", value = local.managed_transfer ? "${local.bus_namespace_name}.servicebus.windows.net" : "" },
     { name = "XL_BUS_QUEUE", value = local.bus_queue_name },
     { name = "XL_STATE_CONTAINER_URL", value = "${azurerm_storage_account.ctl.primary_blob_endpoint}${azurerm_storage_container.state.name}" },
     { name = "XL_AUDIT_CONTAINER_URL", value = "${azurerm_storage_account.audit.primary_blob_endpoint}${azurerm_storage_container.ledger.name}" },
@@ -50,7 +50,19 @@ locals {
     { name = "XL_CTL_SCOPE", value = local.bus_namespace_id },
     { name = "XL_OPERATOR_ROLE_ID", value = local.role_ids.bus_sender },
     { name = "XL_KNOWN_SERVICES", value = jsonencode(var.known_service_principals) },
-    { name = "XL_SERVICE_IDENTITIES", value = join(",", [azurerm_user_assigned_identity.transfer.principal_id, azurerm_user_assigned_identity.collector.principal_id, azurerm_user_assigned_identity.seed.principal_id]) },
+    { name = "XL_SERVICE_IDENTITIES", value = join(",", [azurerm_user_assigned_identity.transfer.principal_id, azurerm_user_assigned_identity.collector.principal_id, azurerm_user_assigned_identity.seed.principal_id, azurerm_user_assigned_identity.connector.principal_id]) },
+    { name = "XL_KEY_VAULT_URI", value = local.key_vault_uri },
+    { name = "XL_KEY_VAULT_ID", value = local.key_vault_id },
+    # ticket intake
+    { name = "XL_SELF_SERVICE", value = tostring(var.enable_self_service) },
+    { name = "XL_DATASETS", value = jsonencode(var.datasets) },
+    { name = "XL_FEISHU_APP_ID", value = local.ticket_intake ? var.feishu_app_id : "" },
+    { name = "XL_FEISHU_APPROVAL_CODE", value = var.feishu_approval_code },
+    { name = "XL_FEISHU_DOMAIN", value = var.feishu_domain },
+    { name = "XL_FEISHU_FIELDS", value = jsonencode(var.feishu_fields) },
+    { name = "XL_APPROVER_EMAILS", value = join(",", local.approver_emails) },
+    { name = "XL_TICKET_QUEUE", value = local.ticket_queue_name },
+    { name = "XL_RECONCILE_DAYS", value = tostring(var.ticket_reconcile_days) },
   ]
 
   registries = local.image_is_placeholder ? [] : [{
@@ -60,7 +72,7 @@ locals {
 }
 
 resource "azapi_resource" "job_transfer" {
-  count     = var.enable_managed_transfer ? 1 : 0
+  count     = local.managed_transfer ? 1 : 0
   type      = "Microsoft.App/jobs@2025-01-01"
   name      = "job-${local.name}-transfer"
   parent_id = azurerm_resource_group.gov.id
@@ -114,7 +126,6 @@ resource "azapi_resource" "job_transfer" {
           env = concat(local.common_env, [
             { name = "AZURE_CLIENT_ID", value = azurerm_user_assigned_identity.transfer.client_id },
             { name = "XL_WORKER_IDENTITY", value = azurerm_user_assigned_identity.transfer.principal_id },
-            { name = "XL_KEY_VAULT_URI", value = local.key_vault_uri },
             { name = "XL_RCLONE_TRANSFERS", value = tostring(var.rclone_transfers) },
           ])
         }]

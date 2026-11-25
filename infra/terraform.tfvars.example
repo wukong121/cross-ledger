@@ -7,22 +7,31 @@ source_location  = "<overseas-region>"
 # confidential_ledger_location = "<ledger-region>"
 
 it_ops_members    = ["it-admin@contoso.example"]
-data_team_members = ["data-scientist@contoso.example"]
+data_team_members = [] # self-service mode only
 auditor_members   = []
 
 # it_ops_owner_mode    = "eligible" # recommended for production
 # max_activation_hours = 8
 # transfer_parallelism = 4
 
-# Network entry to the source dataset:
-#   "private"   (default, recommended) — Private Endpoint only, pair with a cross-border private line
+# ---- Ticket intake (default): Feishu approval -> connector -> managed transfer ----
+feishu_app_id        = "cli_xxxxxxxxxxxxxxxx"                 # App Secret: `xl feishu set-secret` after deploy
+feishu_approval_code = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" # definitionCode of the data request form
+datasets = {
+  "drive-sample" = { prefix = "batch-001/", description = "sample dataset" }
+}
+# it_approver_emails = ["it-approver@example.com"]   # Feishu e-mails counted as IT approval (default: it_ops_members)
+# feishu_fields      = { "数据集" = "dataset", "目的地" = "destination", "用途" = "purpose" }
+# alert_emails       = ["it-ops@example.com"]
+# secrets_admin_ips  = ["203.0.113.20/32"]           # needed only to edit Key Vault secrets in the portal
+
+# ---- Optional self-service mode (PIM + own-identity rclone), off by default ----
+# enable_self_service = true
+# Network entry to the source dataset for self-service reads:
+#   "private"   (default, recommended) — Private Endpoint only
 #   "perimeter" — public endpoint governed by a Network Security Perimeter; only these IPs may connect
 # source_public_access  = "perimeter"
-# perimeter_allowed_ips = ["203.0.113.10/32"]   # domestic cloud NAT gateway / IDC egress IPs
-
-# Optional managed transfer component (Service Bus + Container Apps Job + AzCopy).
-# The default data path is self-service rclone with the user's own identity.
-# enable_managed_transfer = false
+# perimeter_allowed_ips = ["203.0.113.10/32"]
 
 # Platform services that legitimately read data outside PIM windows (recorded as Info, not anomalies).
 # known_service_principals = { "<object-id>" = "Defender for Storage - sensitive data discovery" }

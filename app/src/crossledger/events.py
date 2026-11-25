@@ -25,7 +25,7 @@ from .identity import credential
 
 log = logging.getLogger(__name__)
 
-STAGES = ("request", "approve", "operate", "revoke")
+STAGES = ("request", "approve", "operate", "close", "revoke")  # revoke: PIM self-service only
 
 
 def utcnow() -> datetime:
@@ -81,6 +81,7 @@ class _ConfidentialLedgerSink:
 
         ledger_id = endpoint.split("//", 1)[-1].split(".", 1)[0]
         ident = ConfidentialLedgerCertificateClient().get_ledger_identity(ledger_id=ledger_id)
+        self.service_cert = ident["ledgerTlsCertificate"]
         cert = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False)
         cert.write(ident["ledgerTlsCertificate"])
         cert.close()
@@ -91,6 +92,19 @@ class _ConfidentialLedgerSink:
     @staticmethod
     def collection(ticket: str) -> str:
         return re.sub(r"[^A-Za-z0-9_\-]", "_", ticket)[:64] or "UNTICKETED"
+
+    def verify_receipt(self, transaction_id: str) -> tuple[bool, str]:
+        """Fetch the write receipt of a transaction and verify it offline: the node's signature over
+        the Merkle root, the endorsement chain to the ledger's service identity, and the proof path
+        from this transaction's leaf to the signed root."""
+        from azure.confidentialledger.receipt import verify_receipt
+
+        res = self.client.begin_get_receipt(transaction_id).result()
+        try:
+            verify_receipt(res["receipt"], self.service_cert, application_claims=res.get("applicationClaims"))
+            return True, f"signed by node {res['receipt'].get('nodeId', '')[:12]}…"
+        except Exception as e:  # tampered / unverifiable
+            return False, f"{type(e).__name__}: {e}"[:120]
 
     def write(self, ev: LedgerEvent, digest: str) -> str:
         entry = {"contents": json.dumps({"sha256": digest, "event": json.loads(ev.canonical())})}

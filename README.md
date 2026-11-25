@@ -1,7 +1,7 @@
 # cross-ledger
 
-**合规的跨境数据回传 + 即时授权 + 端到端台账，基于 Azure 构建。**
-**Compliant cross-border data transfer with just-in-time authorization and an end-to-end audit ledger, built on Azure.**
+**合规的跨境数据回传：工单审批驱动的自动搬运 + 端到端台账，基于 Azure 构建。**
+**Compliant cross-border data transfer: approval-driven automated copies and an end-to-end audit ledger, built on Azure.**
 
 [中文](#中文) · [English](#english)
 
@@ -11,66 +11,67 @@
 
 ### 解决什么问题
 
-企业在海外有业务数据（存放在海外 Azure 区域的 Blob Storage 中），需要**合规地**传输回国内，供国内公有云和本地 IDC 上的团队使用：
+企业在海外有业务数据（存放在海外 Azure 区域的 Blob Storage 中），需要**合规地**传输回国内的公有云对象存储和本地 IDC：
 
-1. **数据获取**：研发在国内公有云开发机 / 开发容器里按需拉取；数据团队把数据批量搬到国内云的对象存储
-2. **身份与权限**：IT 运维持有 Owner；研发/算法/数据团队**按需申请**后才能读取，用完收回
-3. **台账留痕**：按事件统一记录 **申请 → 审批 → 操作 → 收回** 的完整过程，可追溯、不可篡改
+1. **申请与审批**：业务方（研发 / 算法 / 数据）在企业已有的**飞书审批**中提交数据申请，IT 审批；申请人**不需要 Azure 账号**
+2. **数据搬运**：审批通过后自动搬到 **IT 登记的目的地**，逐对象校验
+3. **台账留痕**：按工单统一记录 **提交 → 审批 → 搬运 → 校验 → 结束** 的完整过程，可追溯、不可篡改，不依赖工单系统自身的记录
 
 ### 方案一览
 
+**飞书负责流程，Azure 负责判断、执行、留痕和存证。**
+
 ```mermaid
 flowchart LR
-  A["研发 / 数据：xl request<br/>（工单号 + 理由）"] --> B["IT：PIM 审批"]
-  B --> C["rclone（本人 Entra 身份）<br/>拉到本地 / 搬到国内对象存储"]
-  C --> N{{"源存储网络入口<br/>私有（推荐）或 NSP 白名单"}}
-  B -. 到期 / 交还 / 强制收回 .-> F["收回"]
-  A & B & N & F --> L["台账<br/>Confidential Ledger + Log Analytics + WORM"]
+  A["业务方：飞书审批单<br/>数据集 · 目的地 · 用途"] --> B["IT：飞书中审批"]
+  B -- "长连接事件" --> C["connector（Azure）<br/>回查工单 · 独立复核"]
+  C --> W["transfer worker<br/>rclone：私网读取 → 固定出口 IP 写入"]
+  W --> D[("IT 登记的<br/>国内对象存储")]
+  C & W --> L["台账<br/>Confidential Ledger + Log Analytics + WORM"]
 ```
 
 | 关注点 | 方案 |
 |---|---|
-| 数据存储 | Azure Blob Storage（只允许 Entra 认证，禁用密钥）|
-| 网络 | 推荐：Private Endpoint（+ 合规专线）；公网传输时：**Network Security Perimeter** 只放行国内出口 IP |
-| 数据通道 | 客户已在使用的开源 **rclone**，以**本人身份**读取（`xl rclone-config` 生成无密钥配置）；可选：**托管搬运组件**，由 Azure 上的 worker 以服务身份运行 rclone，经私网读取源数据并写入国内对象存储（Service Bus + Container Apps Job + Key Vault + NAT Gateway 固定出口 IP）；目的地由 IT 注册（`xl dest add --from-rclone`），申请时声明、审批可见，提交时用 `--to` 或计划文件指定 |
-| 身份权限 | Microsoft Entra ID 安全组 + **Privileged Identity Management**（审批、工单号、限时、自动收回）+ Managed Identity |
-| 台账与运维 | Azure Monitor Logs（`XLedger_CL`）+ **Azure Confidential Ledger**（防篡改）+ Blob **WORM** + Workbook；存储日志与网络边界日志**交叉核验**；失败、拒绝与越权**自动告警** |
+| 工单接入 | 飞书企业自建应用，**出站长连接**接收审批事件（无入站端口、无需域名证书）；**Azure Container Apps** 常驻 connector；**Service Bus** 先入队再处理、按消息 ID 去重；collector 定时对账，漏掉的事件也会补上 |
+| 复核 | 回查工单原文（不信任事件内容）；审批人必须属于 IT 且不是申请人；数据集、目的地必须在 Azure 侧登记表中 |
+| 数据通道 | 源存储**只开私网**，只有 worker 的托管身份能读；开源 **rclone** 写入 S3 兼容对象存储，`rclone check` 逐对象校验，目的地桶中写来源证明（manifest）；**NAT Gateway** 固定出口 IP |
+| 登记表 | 目的地 = **Key Vault** 机密（IT 在门户中填表：值是 Secret Key，标签是 endpoint / root 等）；数据集 = Terraform 变量；表单选项与登记表不一致时告警 |
+| 台账与运维 | Azure Monitor Logs（`XLedger_CL`）+ **Azure Confidential Ledger**（防篡改）+ Blob **WORM**（含审批时的工单快照）+ Workbook；失败、拒绝、开始后撤回、工单被删、越权访问**自动告警** |
+| 可选：自助模式 | 有 Azure 账号的人员通过 **PIM** 申请限时数据角色，本人身份用 rclone 读取或提交搬运（默认关闭）|
 | IaC / 交付 | Terraform（azurerm · azuread · azapi）· Azure Container Registry · Python 3.12 / uv / Typer |
 
 ### 快速开始
 
 ```bash
-cp infra/terraform.tfvars.example infra/terraform.tfvars   # 订阅、区域、人员 UPN、网络模式
-./scripts/deploy.sh                                        # 基础设施 + 镜像 + Job，约 15 分钟
-./scripts/seed-data.sh                                     # 生成样例数据
-
+cp infra/terraform.tfvars.example infra/terraform.tfvars   # 订阅、区域、IT 成员、飞书 App ID / 审批定义 Code、数据集
+./scripts/deploy.sh                                        # 基础设施 + 镜像 + connector / Job，约 15 分钟
 cd app
-uv run xl request source-reader -t DT-0001 -r "拉取 batch-001" --hours 2   # 研发 / 数据
-#   → IT 在 PIM 中审批（申请人不能自批）
-uv run xl rclone-config >> ~/.config/rclone/rclone.conf                     # 无密钥的 rclone 配置
-rclone copy overseas:datasets/batch-001 ./batch-001 --checksum             # 以本人身份拉取
-rclone check overseas:datasets/batch-001 ./batch-001                       # 逐对象校验
-uv run xl revoke source-reader -t DT-0001                                   # 用完交还
-uv run xl timeline DT-0001                                                  # 审计：完整时间线
-uv run xl ledger-verify DT-0001                                             # 审计：与防篡改账本比对
+uv run xl feishu set-secret                                # 飞书 App Secret 写入 Key Vault（不回显）
+uv run xl dest add store-a --provider Other --endpoint https://... --access-key-id <AK> --root <bucket>/landing/
+uv run xl dest test store-a                                 # 从 worker 发起连通性测试
+uv run xl feishu check                                     # 表单控件与登记表是否一致
+#   → 业务方在飞书提交，IT 在飞书审批，数据自动搬运
+uv run xl tickets                                          # 审计：所有工单
+uv run xl timeline <工单号>                                 # 审计：完整时间线
+uv run xl ledger-verify <工单号>                            # 审计：与防篡改账本比对
 ```
 
 ### 文档
 
 | 文档 | 内容 |
 |---|---|
-| [docs/poc-report.md](docs/poc-report.md) | **PoC 验证报告**：验证结果与截图、已知限制、下一步 |
-| [docs/architecture.md](docs/architecture.md) | 架构、组件选型、身份模型、数据通道、网络模式、台账设计 |
-| [docs/rclone.md](docs/rclone.md) | 研发与数据团队用 rclone 取数的指南 |
-| [docs/runbook.md](docs/runbook.md) | 按角色的操作流程：申请 → 审批 → 操作 → 收回 → 审计，以及故障处理 |
-| [docs/deployment.md](docs/deployment.md) | 前置条件、全部配置项、部署 / 更新 / 清理、PoC 模拟环境 |
+| [docs/poc-report.md](docs/poc-report.md) | **PoC 验证报告**：验证结果与截图 |
+| [docs/architecture.md](docs/architecture.md) | 架构、组件选型、工单接入与复核、身份模型、台账设计 |
+| [docs/runbook.md](docs/runbook.md) | 按角色的操作流程：登记目的地 → 提交 → 审批 → 搬运 → 审计，以及告警处理 |
+| [docs/deployment.md](docs/deployment.md) | 前置条件、全部配置项、飞书应用与审批定义配置、部署 / 更新 / 清理 |
 | [docs/production.md](docs/production.md) | 网络阶段规划、吞吐估算、成本构成、加固清单 |
+| [docs/self-service.md](docs/self-service.md) · [docs/rclone.md](docs/rclone.md) | 可选的自助模式（PIM + 本人身份 rclone）|
 
 ### 仓库结构
 
 ```
-infra/      Terraform：存储、网络（PE / NSP）、身份、PIM、监控、台账、Job、Workbook
-app/        Python 包 crossledger：xl CLI、ledger collector、可选的 transfer worker；Dockerfile
+infra/      Terraform：存储、网络（PE / NSP / NAT）、身份、Service Bus、Key Vault、connector、Job、监控、台账、Workbook
+app/        Python 包 crossledger：xl CLI、connector（飞书接入）、transfer worker、collector；Dockerfile
 scripts/    deploy.sh · seed-data.sh · destroy.sh · sim-host.sh（PoC 模拟国内环境）· 截图工具
 docs/       文档
 ```
@@ -81,18 +82,25 @@ docs/       文档
 
 ### Problem
 
-An organization has business data overseas, in Azure Blob Storage in an overseas region, that must be brought back **compliantly** for teams working on domestic public-cloud dev machines / containers and on-prem infrastructure:
+An organization has business data overseas, in Azure Blob Storage in an overseas region, that must be brought back **compliantly** to domestic public-cloud object storage and on-prem infrastructure:
 
-1. **Data access**: engineers pull on demand into dev machines / containers; the data team bulk-copies into domestic S3-compatible object storage.
-2. **Identity & access**: IT ops are Owners; R&D and data staff **request** read access just-in-time and lose it afterwards.
-3. **Ledger**: every lifecycle step (**request → approve → operate → revoke**) is recorded per event and per ticket, and is tamper-evident.
+1. **Request & approval**: business users (R&D, algorithm and data teams) file a data request in the organization's existing **Feishu (Lark) approval** workflow, and IT approves it there. Requesters **don't need Azure accounts**.
+2. **Transfer**: once approved, the data is copied automatically to a **destination registered by IT** and verified object by object.
+3. **Ledger**: every step (**submit → approve → transfer → verify → close**) is recorded per ticket and is tamper-evident. It does not depend on the ticketing system's own records, which admins can delete.
 
 ### How
 
-- **Data path**: the open-source **rclone** the organization already uses reads the source with the **user's own Entra ID token** (`use_az = true`, no keys or SAS). It writes to local disk or any S3-compatible store and verifies size and MD5 with `rclone check`. An optional managed component runs rclone under a service identity instead. Jobs are submitted to a Service Bus queue and executed by a KEDA-triggered Container Apps Job. It reads the source over its Private Endpoint and writes to the destination object storage, with credentials in Key Vault and a fixed egress IP from NAT Gateway, so the source never needs a public entry point and people who submit transfers never hold read access. Destinations are registered by IT (`xl dest add --from-rclone`, credentials kept in Key Vault). Requesters declare the destinations they need in the PIM request, so the approver sees where the data goes. Each shard then names its target, `<destination>:<bucket>/<path>/`, through `--to` or a YAML transfer plan, and the worker only accepts targets that are both registered and approved.
-- **Network**: the recommended setup is a private source (Private Endpoint plus a licensed private line). For public-internet transfer, the account sits behind a **Network Security Perimeter** that only admits the destination's egress IPs. The storage firewall is never opened directly.
-- **Identity**: Entra ID groups plus **PIM for Azure resources**. Data roles are *eligible*, never standing. Activation needs a justification, a ticket number and approval from a different person. It expires automatically.
-- **Audit**: a scheduled collector rebuilds each lifecycle from PIM, the Activity Log, storage logs and perimeter logs. It writes ticket-keyed events to **Azure Confidential Ledger**, **Log Analytics** and **WORM Blob**. It cross-checks storage logs against perimeter logs (`audit.gap` / `audit.partial`). It also flags access outside a window, revocation lag, platform scanners and RBAC changes made outside PIM.
+The ticketing system runs the workflow. Azure makes the decisions, does the work and keeps the evidence.
+
+- **Intake**: a Feishu self-built app delivers approval events over an **outbound long connection**, so there's no inbound endpoint, domain or certificate. An always-on **Container Apps** connector queues each event on **Service Bus**, re-reads the instance through the API (the event itself is never trusted) and re-checks it:
+  - at least one approver is on the IT list and isn't the applicant;
+  - the dataset and destination are in the Azure-side registries.
+
+  A collector reconciles every few minutes, so missed events are still processed. Each ticket is transferred exactly once.
+- **Transfer**: the source account is **private-endpoint only**. Only the worker's managed identity can read it. A KEDA-triggered Container Apps Job runs **rclone** into S3-compatible storage through a NAT Gateway egress IP. It verifies every object with `rclone check` and writes a provenance manifest next to the data.
+- **Registries**: destinations are **Key Vault** secrets that IT fills in through the Azure portal. The value is the secret key; the tags hold the endpoint, root and so on. Datasets are a Terraform variable. If the form's options drift from the registries, an alert fires.
+- **Audit**: ticket-keyed events go to **Azure Confidential Ledger**, **Log Analytics** and **WORM Blob**. WORM Blob also holds a snapshot of each ticket taken at approval. Alerts fire on failures, rejections, withdrawal after the transfer started, deleted tickets and access by anyone but the worker.
+- **Optional self-service mode** (off by default): staff who have Azure accounts request just-in-time data roles through **PIM**. They then read with rclone under their own identity, or submit transfers themselves.
 
 See [docs/poc-report.md](docs/poc-report.md) for the validated end-to-end results with screenshots. Docs are in Chinese; code, comments and CLI are in English. Nothing here is legal advice. Validate data-export and data-import requirements with your counsel.
 

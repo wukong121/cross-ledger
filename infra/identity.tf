@@ -83,18 +83,45 @@ locals {
   }
 
   # Standing (non-PIM) role assignments — workloads and read-only audiences only.
-  standing_assignments = merge(local.base_assignments, var.enable_managed_transfer ? local.managed_transfer_assignments : {})
+  standing_assignments = merge(
+    local.base_assignments,
+    local.managed_transfer ? local.managed_transfer_assignments : {},
+    local.ticket_intake ? local.intake_assignments : {},
+    local.managed_transfer && var.enable_self_service ? local.self_service_assignments : {},
+  )
 
-  # Only with enable_managed_transfer.
+  # Only with intake = "feishu".
+  intake_assignments = {
+    # connector: ticket-events (send + receive), queue shards, registry tags (ARM), Feishu secret only
+    conn_ticket_rx = { scope = local.ticket_queue_id, role = "Azure Service Bus Data Receiver", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_ticket_tx = { scope = local.ticket_queue_id, role = "Azure Service Bus Data Sender", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_xfer_tx   = { scope = local.bus_queue_id, role = "Azure Service Bus Data Sender", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_kv_tags   = { scope = local.key_vault_id, role = "Reader", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_feishu    = { scope = try(azapi_resource.feishu_secret[0].id, ""), role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_state     = { scope = azurerm_storage_account.ctl.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_audit     = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_dcr       = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.connector.principal_id }
+    conn_acr       = { scope = azurerm_container_registry.this.id, role = "AcrPull", principal = azurerm_user_assigned_identity.connector.principal_id }
+    # collector: reconciliation re-queues tickets, catalog check reads the form via the Feishu API
+    col_ticket_tx = { scope = local.ticket_queue_id, role = "Azure Service Bus Data Sender", principal = azurerm_user_assigned_identity.collector.principal_id }
+    col_feishu    = { scope = try(azapi_resource.feishu_secret[0].id, ""), role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.collector.principal_id }
+    # worker: "transfer started" markers (withdrawal after start is an anomaly)
+    xfer_state = { scope = azurerm_storage_account.ctl.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.transfer.principal_id }
+  }
+
+  # Only in self-service mode: the data team lists registered destinations (names + tags via ARM).
+  self_service_assignments = {
+    team_kv_reader = { scope = local.key_vault_id, role = "Reader", principal = azuread_group.this["data_team"].object_id }
+  }
+
+  # Only with the managed transfer component.
   managed_transfer_assignments = {
     # transfer worker: read source, consume its queue, read destination credentials, emit events
     xfer_src_read = { scope = azurerm_storage_account.source.id, role = "Storage Blob Data Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     # Data Owner on the queue only: KEDA's Service Bus scaler needs to read queue runtime properties.
-    xfer_queue     = { scope = local.bus_queue_id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
-    xfer_kv        = { scope = local.key_vault_id, role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.transfer.principal_id }
-    ops_kv_officer = { scope = local.key_vault_id, role = "Key Vault Secrets Officer", principal = azuread_group.this["it_ops"].object_id }
-    # data team: list registered destinations (names + tags via ARM), never secret values
-    team_kv_reader    = { scope = local.key_vault_id, role = "Reader", principal = azuread_group.this["data_team"].object_id }
+    xfer_queue        = { scope = local.bus_queue_id, role = "Azure Service Bus Data Owner", principal = azurerm_user_assigned_identity.transfer.principal_id }
+    xfer_kv           = { scope = local.key_vault_id, role = "Key Vault Secrets User", principal = azurerm_user_assigned_identity.transfer.principal_id }
+    ops_kv_officer    = { scope = local.key_vault_id, role = "Key Vault Secrets Officer", principal = azuread_group.this["it_ops"].object_id }
     xfer_pim_read     = { scope = azurerm_resource_group.gov.id, role = "Reader", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_audit_append = { scope = azurerm_storage_account.audit.id, role = "Storage Blob Data Contributor", principal = azurerm_user_assigned_identity.transfer.principal_id }
     xfer_dcr          = { scope = azurerm_monitor_data_collection_rule.ledger.id, role = "Monitoring Metrics Publisher", principal = azurerm_user_assigned_identity.transfer.principal_id }

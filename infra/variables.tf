@@ -181,7 +181,7 @@ variable "perimeter_allowed_ips" {
 
 variable "enable_managed_transfer" {
   description = <<-EOT
-    Optional managed transfer component: transfer jobs are submitted to a Service Bus queue and
+    Managed transfer component (always on when intake = "feishu"): transfer jobs are submitted to a Service Bus queue and
     executed by a KEDA-triggered Container Apps Job that runs rclone under its managed identity —
     reading the source over its Private Endpoint and writing to the destination object storage
     (S3-compatible) whose credentials are kept in Key Vault. Egress uses a fixed IP (NAT Gateway).
@@ -217,4 +217,84 @@ variable "rclone_transfers" {
   description = "Parallel file transfers per shard in the managed transfer worker (rclone --transfers)."
   type        = number
   default     = 16
+}
+
+# ------------------------------------------------------------- ticket intake --
+
+variable "intake" {
+  description = <<-EOT
+    Where transfers come from.
+    "feishu" (default): a Feishu (Lark) approval form. IT approves in Feishu, the connector re-checks the
+                        ticket on the Azure side and the worker moves the data — nobody needs an Azure account
+                        to request data. Implies the managed transfer component.
+    "cli":              only `xl transfer` (needs enable_self_service = true for the PIM-based flow).
+  EOT
+  type        = string
+  default     = "feishu"
+  validation {
+    condition     = contains(["feishu", "cli"], var.intake)
+    error_message = "intake must be \"feishu\" or \"cli\"."
+  }
+}
+
+variable "enable_self_service" {
+  description = <<-EOT
+    Optional self-service mode (off by default): data-team members with Azure accounts get PIM-eligible
+    data roles (read the source with their own identity, submit transfers with `xl transfer`).
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "datasets" {
+  description = "Datasets that may be requested: name (as shown in the approval form) -> prefix in the source container."
+  type = map(object({
+    prefix      = string
+    description = optional(string, "")
+  }))
+  default = {}
+  validation {
+    condition     = alltrue([for k in keys(var.datasets) : can(regex("^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$", k))])
+    error_message = "dataset names: lowercase letters, digits and '-' (max 32)."
+  }
+}
+
+variable "feishu_app_id" {
+  description = "Feishu self-built app ID (App Secret: `xl feishu set-secret`, never in tfvars)."
+  type        = string
+  default     = ""
+}
+
+variable "feishu_approval_code" {
+  description = "Approval definition code of the data request form (only this definition is processed)."
+  type        = string
+  default     = ""
+}
+
+variable "feishu_domain" {
+  description = "Feishu Open Platform base URL."
+  type        = string
+  default     = "https://open.feishu.cn"
+}
+
+variable "feishu_fields" {
+  description = "Form widget (custom_id, id or name) -> meaning: dataset | destination | purpose."
+  type        = map(string)
+  default = {
+    "数据集" = "dataset"
+    "目的地" = "destination"
+    "用途"  = "purpose"
+  }
+}
+
+variable "it_approver_emails" {
+  description = "E-mail addresses whose approval counts as IT approval (matched against the ticketing system). Defaults to it_ops_members."
+  type        = list(string)
+  default     = null
+}
+
+variable "ticket_reconcile_days" {
+  description = "How far back the collector re-checks tickets (missed events, deleted records)."
+  type        = number
+  default     = 7
 }

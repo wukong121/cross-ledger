@@ -14,7 +14,7 @@ locals {
   perimeter_enabled = var.source_public_access == "perimeter"
   perimeter_ips     = distinct(var.perimeter_allowed_ips)
   # The perimeter also governs Key Vault when the managed transfer component is on.
-  nsp_needed = local.perimeter_enabled || var.enable_managed_transfer
+  nsp_needed = local.perimeter_enabled || local.managed_transfer
 }
 
 resource "azapi_update_resource" "source_public_access" {

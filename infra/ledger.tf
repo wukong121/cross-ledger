@@ -33,6 +33,12 @@ resource "azurerm_confidential_ledger" "this" {
   }
 
   azuread_based_service_principal {
+    principal_id     = azurerm_user_assigned_identity.connector.principal_id
+    tenant_id        = data.azurerm_client_config.current.tenant_id
+    ledger_role_name = "Contributor"
+  }
+
+  azuread_based_service_principal {
     principal_id     = azurerm_user_assigned_identity.transfer.principal_id
     tenant_id        = data.azurerm_client_config.current.tenant_id
     ledger_role_name = "Contributor"
