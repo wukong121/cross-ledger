@@ -310,8 +310,6 @@ Key Vault 审计日志记录了每一次机密读取：
 
 ![alerts](images/poc/62-alerts.png)
 
-> 📷 **可选截图（邮件）**：告警邮件。文件名：`images/poc/feishu/f4-alert-mail.png`
-
 ---
 
 ## 6. 安全与可靠性要点
